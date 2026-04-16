@@ -837,7 +837,7 @@ def main(ticker: str = "002273.SZ"):
     from inline_assets import main as inline_main
     standalone = inline_main(ti.full)
 
-    # Ensure standalone file is fully written before opening
+    # Ensure standalone file is fully written
     standalone_path = Path(standalone).resolve()
     assert standalone_path.exists() and standalone_path.stat().st_size > 10000, \
         f"Standalone file missing or too small: {standalone_path}"
@@ -846,10 +846,15 @@ def main(ticker: str = "002273.SZ"):
     print(f"   Standalone: {standalone_path}")
     print(f"   Size: {standalone_path.stat().st_size // 1024} KB")
 
-    # Auto-open AFTER everything is complete
-    import webbrowser
-    webbrowser.open(standalone_path.as_uri())
-    print(f"   🌐 已在浏览器中打开")
+    # Browser open is handled by run.py (supports --remote / --no-browser)
+    # Only auto-open if called directly (not via run.py)
+    if os.environ.get("UZI_NO_AUTO_OPEN") != "1":
+        try:
+            import webbrowser
+            webbrowser.open(standalone_path.as_uri())
+            print(f"   🌐 已在浏览器中打开")
+        except Exception:
+            print(f"   💡 无法打开浏览器，请手动打开: {standalone_path}")
 
 
 if __name__ == "__main__":

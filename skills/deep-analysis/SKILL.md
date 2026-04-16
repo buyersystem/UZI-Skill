@@ -345,6 +345,33 @@ python scripts/render_war_report.py {ticker}  # 战报 PNG
 
 ---
 
+## 🖥️ Codex / 远程环境适配
+
+**如果你在 Codex / Docker / SSH 等无 GUI 环境中运行**，使用 `run.py` 根入口：
+
+```bash
+# 在仓库根目录
+python run.py <股票代码>                   # 自动检测环境，无浏览器时给路径
+python run.py <股票代码> --remote          # 完成后启动 Cloudflare Tunnel，生成公网链接
+python run.py <股票代码> --no-browser      # 强制不打开浏览器
+```
+
+**`--remote` 模式的工作流**：
+1. 正常跑完 6 个 Task，生成 HTML 报告
+2. 自动启动本地 HTTP 服务器（端口 8976）
+3. 调用 `cloudflared tunnel` 映射到 `https://xxx.trycloudflare.com`
+4. 输出公网链接 — 用户手机扫码 / 发微信就能看报告
+5. Ctrl+C 停止服务
+
+**Task 0 可选步骤：询问用户环境**
+
+在开始分析之前，你可以先问用户：
+> "你现在在电脑前吗？如果不在，我可以生成一个公网链接方便手机查看。"
+
+如果用户说不在电脑前 → 加 `--remote` 参数。
+
+---
+
 ## 🎛️ 模式选择
 
 | 触发 | 行为 |

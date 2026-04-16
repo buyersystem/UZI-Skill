@@ -108,6 +108,14 @@ cd UZI-Skill && pip install -r requirements.txt
 python run.py 002273.SZ
 ```
 
+### 📱 不在电脑前？用 --remote
+
+```bash
+python run.py 600519.SH --remote
+```
+
+跑完会自动启动 Cloudflare Tunnel，给你一个 `https://xxx.trycloudflare.com` 的公网链接。发到手机微信里直接打开就能看报告，不需要配置任何服务器。
+
 ---
 
 ## 用法
