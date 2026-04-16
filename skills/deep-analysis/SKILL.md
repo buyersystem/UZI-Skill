@@ -73,7 +73,18 @@ Stage 1 自动完成：Task 1（22 维采集）→ Task 1.5（机构建模）→
 
 ### 你的分析环节（Stage 1 之后、Stage 2 之前）
 
-**这一步不能跳过！** 详见下面的 Task 3 和 Task 4 章节。核心是：
+<HARD-GATE>
+Do NOT run stage2() until ALL of the following are complete:
+1. You have READ .cache/{ticker}/panel.json and reviewed the 51 skeleton scores
+2. You have SPAWNED sub-agents (or personally analyzed) each investor group
+3. You have MERGED agent results back into panel.json with updated headline/reasoning/score
+4. You have WRITTEN dim_commentary for at least the top 5 critical dimensions
+
+Skipping this step produces a report with mechanical rule-engine output instead of
+genuine investment analysis. The whole point of this plugin is agent-driven judgment.
+</HARD-GATE>
+
+核心是：
 1. 读 `.cache/{ticker}/panel.json` 中 51 人的骨架分
 2. **Spawn 4 个并行 sub-agent 分组 role-play 投资者**——让他们真正"扮演"巴菲特/赵老哥思考
 3. 用 agent 的判断覆盖 panel.json 中的 headline/reasoning/score
