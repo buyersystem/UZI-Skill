@@ -85,22 +85,27 @@ git clone https://github.com/wbh604/UZI-Skill.git && pip install -r UZI-Skill/re
 
 ### Codex
 
-把这段话直接丢给 Codex：
+直接丢这段给 Codex：
 
-> 克隆 https://github.com/wbh604/UZI-Skill ，`pip install -r requirements.txt`，然后跑 `python skills/deep-analysis/scripts/run_real_test.py 600519.SH` 分析贵州茅台，把生成的 HTML 报告打开。
+> 克隆 https://github.com/wbh604/UZI-Skill ，运行 `pip install -r requirements.txt`，然后执行 `python run.py 600519.SH` 分析贵州茅台。跑完把报告路径给我。
+
+或者一行命令：
+```bash
+git clone https://github.com/wbh604/UZI-Skill.git && cd UZI-Skill && pip install -r requirements.txt && python run.py 600519.SH
+```
 
 ### Cursor / Windsurf / Devin / 其他 Agent
 
 丢这段话进去：
 
-> 读 https://github.com/wbh604/UZI-Skill 里的 `skills/deep-analysis/SKILL.md`，按里面的 6 个 Task 帮我分析一只 A 股。先装依赖 `pip install -r requirements.txt`。
+> 克隆 https://github.com/wbh604/UZI-Skill ，装依赖 `pip install -r requirements.txt`，然后 `python run.py 002273.SZ` 分析水晶光电。你也可以读 `skills/deep-analysis/SKILL.md` 了解完整 6-Task 工作流。
 
 ### 纯命令行
 
 ```bash
 git clone https://github.com/wbh604/UZI-Skill.git
 cd UZI-Skill && pip install -r requirements.txt
-python skills/deep-analysis/scripts/run_real_test.py 002273.SZ
+python run.py 002273.SZ
 ```
 
 ---
