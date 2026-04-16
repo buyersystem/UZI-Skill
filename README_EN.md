@@ -20,7 +20,9 @@ China A-Share / HK / US Stock Deep Analysis Engine
 </div>
 
 ---
-
+## Thanks
+Linux.do is all your need to learn AI~
+thansk [Linux.do](https://linux.do/) for support
 ## What Is This
 
 One sentence: enter a stock ticker, Claude becomes your personal analyst — pulls 22 dimensions of data, runs 17 Wall Street analysis models, has 51 investors with completely different styles each score the stock, then produces a 600KB Bloomberg-style report.
