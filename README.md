@@ -49,6 +49,23 @@ A 股 / 港股 / 美股 · 个股深度分析引擎
 
 ## 安装
 
+### OpenClaw / 龙虾（推荐 · 最简单）
+
+复制下面这段命令发给龙虾，它会自动装好：
+
+```bash
+git clone https://github.com/wbh604/UZI-Skill.git ~/.openclaw/skills/UZI-Skill && pip install -r ~/.openclaw/skills/UZI-Skill/requirements.txt
+```
+
+装好后直接对龙虾说：
+
+> 用 UZI-Skill 里的 `skills/deep-analysis/SKILL.md` 帮我分析 贵州茅台，按 6 个 Task 流程跑，代码在 `skills/deep-analysis/scripts/` 下。
+
+或者用 `clawhub`（如果你装了的话）：
+```bash
+clawhub install wbh604/UZI-Skill
+```
+
 ### Claude Code（Plugin 方式）
 
 ```bash
@@ -61,34 +78,26 @@ A 股 / 港股 / 美股 · 个股深度分析引擎
 ```bash
 git clone https://github.com/wbh604/UZI-Skill.git && pip install -r UZI-Skill/requirements.txt
 ```
-然后在 Claude Code 里直接打开 UZI-Skill 目录，skills 会被自动发现。
+然后在 Claude Code 里打开 UZI-Skill 目录，skills 自动发现。
 
 ### Codex
 
-在 Codex 环境里跑这一句：
+把这段话直接丢给 Codex：
 
-```
-git clone https://github.com/wbh604/UZI-Skill.git && pip install -r UZI-Skill/requirements.txt && python UZI-Skill/skills/deep-analysis/scripts/run_real_test.py 002273.SZ
-```
-
-或者把这段话直接扔给 Codex：
-
-> 帮我克隆 https://github.com/wbh604/UZI-Skill ，安装 requirements.txt，然后用里面的 `skills/deep-analysis/scripts/run_real_test.py` 分析 002273.SZ（水晶光电），把生成的 HTML 报告路径给我。
+> 克隆 https://github.com/wbh604/UZI-Skill ，`pip install -r requirements.txt`，然后跑 `python skills/deep-analysis/scripts/run_real_test.py 600519.SH` 分析贵州茅台，把生成的 HTML 报告打开。
 
 ### Cursor / Windsurf / Devin / 其他 Agent
 
-把这段丢进去就行：
+丢这段话进去：
 
-> 读 https://github.com/wbh604/UZI-Skill 里的 `skills/deep-analysis/SKILL.md`，按里面写的 6 个 Task 流程帮我分析一只 A 股。代码在 `skills/deep-analysis/scripts/` 目录下，先 `pip install -r requirements.txt` 装依赖。
+> 读 https://github.com/wbh604/UZI-Skill 里的 `skills/deep-analysis/SKILL.md`，按里面的 6 个 Task 帮我分析一只 A 股。先装依赖 `pip install -r requirements.txt`。
 
-### 纯命令行（不用任何 Agent）
+### 纯命令行
 
 ```bash
 git clone https://github.com/wbh604/UZI-Skill.git
-cd UZI-Skill
-pip install -r requirements.txt
+cd UZI-Skill && pip install -r requirements.txt
 python skills/deep-analysis/scripts/run_real_test.py 002273.SZ
-# 报告输出在 skills/deep-analysis/scripts/reports/
 ```
 
 ---
