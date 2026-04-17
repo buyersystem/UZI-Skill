@@ -91,8 +91,25 @@ def detect_environment() -> dict:
     return env
 
 
+# 国内 pypi 镜像按速度排序（清华通常最快；阿里云在清华故障时兜底）
+PYPI_MIRRORS = [
+    ("清华大学", "https://pypi.tuna.tsinghua.edu.cn/simple"),
+    ("阿里云", "https://mirrors.aliyun.com/pypi/simple/"),
+    ("中科大", "https://pypi.mirrors.ustc.edu.cn/simple/"),
+    ("豆瓣", "https://pypi.douban.com/simple/"),
+]
+
+
+def _pip_install(args: list, index_url: str | None = None) -> int:
+    """Run pip install; return exit code. `index_url=None` means use default pypi."""
+    cmd = [sys.executable, "-m", "pip", "install"] + args + ["--quiet"]
+    if index_url:
+        cmd += ["--index-url", index_url, "--trusted-host", index_url.split("/")[2]]
+    return subprocess.run(cmd, check=False).returncode
+
+
 def check_dependencies():
-    """检查并安装缺失依赖。"""
+    """检查并安装缺失依赖。pypi 访问不通时自动切国内镜像重试（支持中国大陆网络环境）。"""
     required = ["akshare", "requests"]
     missing = []
     for pkg in required:
@@ -101,17 +118,31 @@ def check_dependencies():
         except ImportError:
             missing.append(pkg)
 
-    if missing:
-        print(f"⚠️  缺少依赖: {', '.join(missing)}")
-        print(f"   正在自动安装...")
-        req_file = ROOT_DIR / "requirements.txt"
-        if req_file.exists():
-            subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file), "-q"],
-                           check=False)
-        else:
-            subprocess.run([sys.executable, "-m", "pip", "install"] + missing + ["-q"],
-                           check=False)
+    if not missing:
+        return
+
+    print(f"⚠️  缺少依赖: {', '.join(missing)}")
+    req_file = ROOT_DIR / "requirements.txt"
+    args = ["-r", str(req_file)] if req_file.exists() else missing
+
+    # 第一次尝试：默认 pypi（海外/Codex/美国网络最快）
+    print(f"   [1/{len(PYPI_MIRRORS) + 1}] 尝试默认 pypi.org ...")
+    if _pip_install(args) == 0:
         print("   ✓ 依赖安装完成\n")
+        return
+
+    # 失败后：自动切国内镜像（通常是大陆网络环境）
+    print(f"   ⚠️  默认 pypi 安装失败（可能因网络受限），尝试国内镜像...")
+    for i, (name, url) in enumerate(PYPI_MIRRORS, start=2):
+        print(f"   [{i}/{len(PYPI_MIRRORS) + 1}] 尝试 {name} 镜像 ({url}) ...")
+        if _pip_install(args, index_url=url) == 0:
+            print(f"   ✓ 依赖安装完成（via {name}）\n")
+            return
+
+    print(f"   ❌ 所有镜像都失败了。请手动安装：")
+    print(f"      pip install -r requirements.txt \\")
+    print(f"          -i https://pypi.tuna.tsinghua.edu.cn/simple")
+    print(f"   或参考 README.md 的\"网络受限环境\"章节\n")
 
 
 def serve_report(report_path: Path, port: int = 8976) -> HTTPServer:

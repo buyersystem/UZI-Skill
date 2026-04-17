@@ -117,9 +117,79 @@ Stage 1 跑完后，你必须：
 | Gemini | `GEMINI.md` |
 | Claude Code | `.claude-plugin/plugin.json` |
 
+## 🌐 网络受限环境（重要 · v2.4 新增）
+
+UZI-Skill 既可能在**中国大陆**运行，也可能在 **Codex / 海外云容器**里运行，
+两类环境的网络瓶颈不同，agent 遇到错误时要按情况切换。
+
+### 场景 A · 大陆网络 / 校园 / 公司代理
+
+**症状**：`pip install` 超时、SSL handshake 失败、`pypi.org` 连不上。
+
+**处理**：按顺序尝试国内 pip 镜像（`run.py` 和 `setup.sh` 已经会自动 fallback，
+但在 agent 环境你可能要手动指定）：
+
+```bash
+# 清华（推荐）
+pip install -r requirements.txt \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    --trusted-host pypi.tuna.tsinghua.edu.cn
+
+# 阿里云（兜底）
+pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+
+# 中科大
+pip install -r requirements.txt -i https://pypi.mirrors.ustc.edu.cn/simple/
+```
+
+数据源通常都通（akshare / xueqiu / eastmoney），个别被反爬的子域（如
+`push2.eastmoney.com`）可能 Empty reply — **设置 `MX_APIKEY` 启用东财
+妙想官方 API** 作为主数据源，见 `.env.example`。
+
+### 场景 B · Codex / 海外 agent 容器
+
+**症状**：`pip install` 很快，但跑分析时 `akshare` 报 timeout、
+`push2.eastmoney.com` 不通、`cninfo.com.cn` DNS 失败。
+
+**处理**：国内数据源从海外访问有时反被 GFW 限制。按以下顺序尝试：
+
+1. **启用 MX_APIKEY**（最稳）— 妙想 API 走境内外都可达的 `mkapi2.dfcfs.com`
+2. `yfinance` 兜底美股/港股
+3. `WebSearch` + `Chrome/Playwright MCP` 打开以下备用入口抓 HTML：
+   - 雪球：`https://xueqiu.com/S/{code}`（走 CDN，境外可访问）
+   - 腾讯财经：`https://stockapp.finance.qq.com/mstats/`
+   - 同花顺（F10 页）：`https://stockpage.10jqka.com.cn/{code}/`
+
+### 场景 C · pip 和数据源都不通（双失败）
+
+agent 应该：
+1. 明确告诉用户："当前网络环境无法访问 pypi 和东财，建议切换到中国大陆 IP 或配置 MX_APIKEY"
+2. 不要尝试用未验证的 VPN / 代理，不要绕过用户网络策略
+3. 保留 `_data_gaps.json` + `_resolve_error.json`，下次网络恢复后可以直接 `stage2()` 生成报告
+
+### 环境侦测快速命令
+
+agent 在不确定环境时，可先跑这几条探测：
+
+```bash
+# pypi 连通性
+curl -sS --max-time 5 -o /dev/null -w "pypi: %{http_code}\n" https://pypi.org/simple/
+# 国内镜像连通性
+curl -sS --max-time 5 -o /dev/null -w "tuna: %{http_code}\n" https://pypi.tuna.tsinghua.edu.cn/simple/
+# 东财 push2（最常被挡）
+curl -sS --max-time 5 -o /dev/null -w "push2: %{http_code}\n" https://push2.eastmoney.com/api/qt/stock/get
+# 东财其他域
+curl -sS --max-time 5 -o /dev/null -w "quote-em: %{http_code}\n" https://quote.eastmoney.com/
+curl -sS --max-time 5 -o /dev/null -w "xueqiu: %{http_code}\n" https://xueqiu.com/
+# 妙想 API
+curl -sS --max-time 5 -o /dev/null -w "mx: %{http_code}\n" https://mkapi2.dfcfs.com/
+```
+
+根据哪些通/哪些不通，决定走哪个数据链。
+
 ## 注意
 
 - A 股：`600519.SH` / `002273.SZ` / `贵州茅台`
 - 港股：`00700.HK`
 - 美股：`AAPL`
-- 不需要 API key
+- 不需要 API key（但建议设置 `MX_APIKEY` 提高稳定性）

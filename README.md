@@ -291,6 +291,38 @@ cp .env.example .env
 
 这样你永远能分辨"这只股真的不适合买" vs "只是数据没拿到"。
 
+### 🌐 网络受限环境（v2.4 新增）
+
+UZI-Skill 在大陆和海外都能跑，但瓶颈不同，建议对号入座：
+
+**大陆网络 · `pip install` 失败怎么办？**
+
+`run.py` 和 `setup.sh` 会自动尝试国内镜像（清华 → 阿里云 → 中科大），
+所以常见情况你什么都不用做。若要手动指定：
+
+```bash
+pip install -r requirements.txt \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    --trusted-host pypi.tuna.tsinghua.edu.cn
+```
+
+**Codex / 海外 agent · 数据源访问慢怎么办？**
+
+国内数据源（尤其 `push2.eastmoney.com`）从海外访问经常超时。**强烈建议
+设置 `MX_APIKEY`**（免费申领 → https://dl.dfcfs.com/m/itc4），它走
+`mkapi2.dfcfs.com` 境内外都通，同时天然具备中文名纠错能力。
+
+```bash
+cp .env.example .env
+# 编辑 .env 填入 MX_APIKEY
+python run.py 贵州茅台
+```
+
+**双端都不通**：agent 应保留 `_data_gaps.json` / `_resolve_error.json`，
+等网络恢复后直接跑 `stage2()` 可以复用已采集数据，不用从头来过。
+
+详见 [AGENTS.md · 网络受限环境](AGENTS.md) 的场景 A/B/C 速查。
+
 ---
 
 ## 📁 项目结构
