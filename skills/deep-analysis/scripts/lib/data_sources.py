@@ -7,6 +7,7 @@ Install: pip install akshare yfinance pandas requests
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 
@@ -75,6 +76,44 @@ def _fetch_basic_a(ti: TickerInfo) -> dict:
         raise RuntimeError("akshare not installed")
     out = {"code": ti.full}
     xq_symbol = ("SH" if ti.full.endswith("SH") else "SZ") + ti.code
+
+    # TIER 0 (optional): MX 妙想 Skills Hub — official NLP API. Used when MX_APIKEY is set.
+    # Much more stable than scraping push2.eastmoney.com in Mainland networks.
+    if _mx_available():
+        try:
+            from .mx_api import MXClient
+            client = MXClient()
+            snap = client.fetch_snapshot(ti.code)
+            if snap:
+                # MX returns human-readable keys like "最新价", "总市值", "PE(TTM)"
+                # Normalize into our schema where possible; ignore what we can't map.
+                def _mx_num(*labels):
+                    for lb in labels:
+                        v = snap.get(lb)
+                        if v is None or v == "" or v == "-":
+                            continue
+                        try:
+                            return float(v)
+                        except (ValueError, TypeError):
+                            continue
+                    return None
+
+                price = _mx_num("最新价", "收盘价", "当前价")
+                if price:
+                    out.update({
+                        "name": out.get("name") or (snap.get("_mx_entity") or "").split("(")[0].strip() or None,
+                        "price": price,
+                        "pe_ttm": _mx_num("市盈率(TTM)", "PE(TTM)", "PE"),
+                        "pb": _mx_num("市净率", "PB"),
+                        "market_cap_raw": _mx_num("总市值", "市值"),
+                        "industry": out.get("industry") or snap.get("所属行业") or snap.get("申万行业") or None,
+                    })
+                    mcap_raw = out.get("market_cap_raw")
+                    if mcap_raw:
+                        out["market_cap"] = f"{round(mcap_raw / 1e8, 1)}亿"
+                    out["_fallback_snap"] = "mx-snapshot"
+        except Exception as e:
+            out["_mx_err"] = f"{type(e).__name__}: {str(e)[:120]}"
 
     # PRIMARY: stock_individual_basic_info_xq (XueQiu backend, bypasses eastmoney push2)
     # Aggressive retry: 4 attempts with 2s base delay because XueQiu SSL sometimes flakes
@@ -769,53 +808,111 @@ def _fetch_research_impl(ti: TickerInfo) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────
-# Top-level: resolve Chinese name → ticker (uses akshare a-share spot table)
+# Top-level: resolve Chinese name → ticker
 # ─────────────────────────────────────────────────────────────
-def resolve_chinese_name(name: str) -> TickerInfo | None:
-    """Resolve Chinese stock name to TickerInfo. Multi-fallback:
-    1. akshare A-share spot table (fast but often blocked)
-    2. akshare stock_info_a_code_name (lighter weight)
-    3. DuckDuckGo search as last resort
+# Is MX (东方财富妙想) API available? Checked at import time for quick gating.
+def _mx_available() -> bool:
+    """Checked at call-time so callers can set MX_APIKEY after import (e.g. from .env)."""
+    return bool(os.environ.get("MX_APIKEY"))
+
+
+# Back-compat constant (some callers may reference it).
+MX_AVAILABLE = _mx_available()
+
+
+def resolve_chinese_name_rich(name: str) -> dict:
+    """Resolve a Chinese stock name with full candidate info for user-facing suggestions.
+
+    Returns:
+        {"resolved":    TickerInfo | None,   # set only on confident match
+         "candidates":  list[dict],           # up to 5 candidates for UI disambiguation
+         "source":      "mx"|"exact"|"fuzzy"|"none",
+         "user_input":  name}
+
+    Match order (most accurate first):
+        1. MX 妙想 API — official NLP, handles character-order typos ("北部港湾"→"北部湾港")
+        2. akshare exact substring (preserves legacy behaviour for valid names)
+        3. local Levenshtein fuzzy match against the full A-share name index
+
+    Callers that need the legacy `TickerInfo | None` signature should use
+    `resolve_chinese_name()` (thin wrapper).
     """
-    # Fallback 1: akshare spot table
-    if ak is not None:
+    user_input = name
+
+    # Tier 1: MX API
+    if _mx_available():
         try:
-            df = ak.stock_zh_a_spot_em()
-            row = df[df["名称"].str.contains(name, na=False)]
-            if not row.empty:
-                code = str(row.iloc[0]["代码"])
-                return parse_ticker(code)
+            from .mx_api import MXClient
+            client = MXClient()
+            hits = client.resolve_entity(name)
+            if hits:
+                h = hits[0]
+                ti = parse_ticker(h["secuCode"])
+                cands = [
+                    {"code": x["secuCode"], "name": x["fullName"],
+                     "distance": 0, "source": "mx"}
+                    for x in hits[:5]
+                ]
+                return {"resolved": ti, "candidates": cands,
+                        "source": "mx", "user_input": user_input}
         except Exception:
             pass
 
-    # Fallback 2: akshare code-name mapping (smaller, less likely to be blocked)
+    # Tier 2: akshare exact substring (legacy)
     if ak is not None:
-        try:
-            df = ak.stock_info_a_code_name()
-            row = df[df["name"].str.contains(name, na=False)] if "name" in df.columns else df[df.iloc[:, 1].str.contains(name, na=False)]
-            if not row.empty:
-                code = str(row.iloc[0].iloc[0])  # first column = code
-                return parse_ticker(code)
-        except Exception:
-            pass
+        for fetch in (
+            lambda: ak.stock_zh_a_spot_em(),
+            lambda: ak.stock_info_a_code_name(),
+        ):
+            try:
+                df = fetch()
+                if df is None or df.empty:
+                    continue
+                name_col = "名称" if "名称" in df.columns else ("name" if "name" in df.columns else df.columns[1])
+                code_col = "代码" if "代码" in df.columns else ("code" if "code" in df.columns else df.columns[0])
+                row = df[df[name_col].astype(str).str.contains(name, na=False)]
+                if not row.empty:
+                    code = str(row.iloc[0][code_col])
+                    matched_name = str(row.iloc[0][name_col])
+                    ti = parse_ticker(code)
+                    return {"resolved": ti,
+                            "candidates": [{"code": ti.full, "name": matched_name,
+                                            "distance": 0, "source": "exact"}],
+                            "source": "exact", "user_input": user_input}
+            except Exception:
+                continue
 
-    # Fallback 3: DuckDuckGo search
+    # Tier 3: local fuzzy match
     try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            query = f"{name} A股 股票代码"
-            results = list(ddgs.text(query, max_results=3))
-            import re
-            for r in results:
-                text = f"{r.get('title', '')} {r.get('body', '')}"
-                # Match 6-digit stock codes
-                codes = re.findall(r'\b([036]\d{5})\b', text)
-                if codes:
-                    return parse_ticker(codes[0])
+        from .name_matcher import fuzzy_match
+        hits = fuzzy_match(name, top_k=5, max_distance=2)
     except Exception:
-        pass
+        hits = []
+    if hits:
+        cands = [
+            {"code": parse_ticker(h["code"]).full, "name": h["name"],
+             "distance": h["distance"], "source": "fuzzy"}
+            for h in hits
+        ]
+        # Only auto-resolve if a single dominant candidate (distance 0, or uniquely closer)
+        auto = None
+        if hits[0]["distance"] == 0:
+            auto = parse_ticker(hits[0]["code"])
+        return {"resolved": auto, "candidates": cands,
+                "source": "fuzzy", "user_input": user_input}
 
-    return None
+    return {"resolved": None, "candidates": [],
+            "source": "none", "user_input": user_input}
+
+
+def resolve_chinese_name(name: str) -> TickerInfo | None:
+    """Legacy shim. Returns TickerInfo only when we are confident (MX/exact/fuzzy-d=0).
+
+    For ambiguous matches, callers should use `resolve_chinese_name_rich()` to
+    see the candidate list and ask the user.
+    """
+    r = resolve_chinese_name_rich(name)
+    return r["resolved"]
 
 
 if __name__ == "__main__":

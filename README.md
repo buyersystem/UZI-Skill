@@ -264,6 +264,33 @@ Bull ¥26.95 / Base ¥20.73 / Bear ¥14.51，每个情景有概率和假设。
 
 多层 fallback 链 — 一个源挂了自动切下一个。
 
+### 🔑 可选：东方财富妙想 Skills API（v2.3 新增）
+
+2026 年 `push2.eastmoney.com` 在大陆网络经常被反爬拦截。若设置
+`MX_APIKEY`，UZI-Skill 会优先走官方 NLP API：
+
+- **中文名纠错**："北部港湾" → 自动识别为 "北部湾港(000582.SZ)"
+- **行情快照**：绕过 push2 直接拿到最新价/市值/PE/PB/行业
+
+配置：
+```bash
+cp .env.example .env
+# 编辑 .env 填入 MX_APIKEY（免费申领：https://dl.dfcfs.com/m/itc4）
+```
+
+无 key 时全部回退到 XueQiu/akshare 链，现有用户零感知。
+
+### 🚨 数据缺口怎么处理（v2.3）
+
+若某些字段脚本拿不到（网络限制 / 新股 / 停牌），pipeline **不会塞默认值糊弄**：
+
+1. 生成 `_data_gaps.json` 列出每个缺口的建议恢复动作（浏览器 / MX / WebSearch / 推导）
+2. Agent 按 [HARD-GATE-DATAGAPS](skills/deep-analysis/SKILL.md) 逐条尝试补齐
+3. 真的补不到 → 在 `agent_analysis.json` 里 `data_gap_acknowledged` 显式承认
+4. HTML 报告顶部显示橙色 banner + 相关字段显示 "—" 并划线
+
+这样你永远能分辨"这只股真的不适合买" vs "只是数据没拿到"。
+
 ---
 
 ## 📁 项目结构

@@ -43,6 +43,34 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 os.chdir(str(SCRIPTS_DIR))
 
 
+# ─── .env 加载（v2.3，零依赖，不覆盖已存在的 shell env）──
+def _load_dotenv():
+    """Load KEY=VALUE pairs from $REPO/.env into os.environ.
+
+    Deliberately simple (no quoting games, no variable interpolation) — enough
+    to pick up MX_APIKEY and friends. Existing shell env vars take precedence,
+    so `export MX_APIKEY=...` always wins.
+    """
+    env_path = ROOT_DIR / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip("'\"")  # strip optional quotes
+            if key and key not in os.environ:
+                os.environ[key] = val
+    except Exception as e:
+        print(f"⚠️  .env 读取失败（忽略）: {e}")
+
+
+_load_dotenv()
+
+
 def detect_environment() -> dict:
     """检测当前运行环境。"""
     env = {
@@ -171,7 +199,14 @@ def main():
                         help="不自动打开浏览器")
     parser.add_argument("--port", type=int, default=8976,
                         help="HTTP 服务端口 (默认 8976)")
+    parser.add_argument("--force-name", metavar="CODE",
+                        help="绕过中文名纠错直接使用指定代码 (如 --force-name 000582.SZ)")
     args = parser.parse_args()
+
+    # v2.3 · --force-name 直接覆盖
+    if args.force_name:
+        print(f"   [force-name] {args.ticker} → {args.force_name}")
+        args.ticker = args.force_name
 
     env = detect_environment()
 
@@ -190,10 +225,61 @@ def main():
     # 检查依赖
     check_dependencies()
 
+    # v2.3 · MX API 状态提示
+    if os.environ.get("MX_APIKEY"):
+        print(f"🔑 MX_APIKEY 已设置 · 将优先使用东财妙想 API")
+    else:
+        print(f"ℹ️  未设置 MX_APIKEY · 走默认 akshare/xueqiu 链（可在 .env 里配置）")
+
     # 运行分析（抑制 run_real_test 内部的自动开浏览器）
     os.environ["UZI_NO_AUTO_OPEN"] = "1"
-    from run_real_test import main as run_analysis
-    run_analysis(args.ticker)
+    from run_real_test import main as run_analysis, stage1 as _stage1, stage2 as _stage2
+
+    # v2.3 · 先过 stage1，捕获中文名解析失败场景，不静默跑出空报告
+    from lib.market_router import is_chinese_name
+    if is_chinese_name(args.ticker) and not args.force_name:
+        stage1_result = _stage1(args.ticker)
+        if isinstance(stage1_result, dict) and stage1_result.get("status") == "name_not_resolved":
+            cands = stage1_result.get("candidates", [])
+            print(f"\n{'━' * 50}")
+            print(f"❌ 无法确定股票: {args.ticker!r}")
+            if not cands:
+                print(f"   没有找到相似候选。请用准确的股票代码（如 600519.SH）重试。")
+                sys.exit(2)
+            print(f"   找到 {len(cands)} 个候选:")
+            for i, c in enumerate(cands[:5], 1):
+                print(f"     [{i}] {c['name']:<12s}  {c['code']}   (距离 {c.get('distance', '?')})")
+            # 交互式确认（若 TTY）— agent/CI 环境直接退出让上层决策
+            if sys.stdin.isatty():
+                try:
+                    choice = input("\n   选择候选编号（1-5），或直接回车取消: ").strip()
+                    if choice and choice.isdigit() and 1 <= int(choice) <= len(cands):
+                        picked = cands[int(choice) - 1]
+                        print(f"   ✓ 使用 {picked['name']} ({picked['code']})")
+                        args.ticker = picked["code"]
+                        # 用选定代码重跑 stage1 然后 stage2
+                        _stage1(args.ticker)
+                        _stage2(args.ticker)
+                    else:
+                        print("   已取消。")
+                        sys.exit(2)
+                except (EOFError, KeyboardInterrupt):
+                    print("\n   已取消。")
+                    sys.exit(2)
+            else:
+                # Non-interactive: surface structured error and exit 2
+                import json as _json
+                print(_json.dumps(stage1_result, ensure_ascii=False, indent=2))
+                sys.exit(2)
+        else:
+            # stage1 已经成功跑完 — 用它返回的 resolved ticker 跑 stage2（cache 是以解析后代码命名的）
+            resolved = stage1_result.get("ticker") if isinstance(stage1_result, dict) else None
+            _stage2(resolved or args.ticker)
+            # 对齐 args.ticker 以便后续 report_dir 查找
+            if resolved:
+                args.ticker = resolved
+    else:
+        run_analysis(args.ticker)
 
     # 找到生成的报告
     from datetime import datetime

@@ -835,17 +835,41 @@ def stage1(ticker: str) -> dict:
     Claude 应该在 stage1 之后介入，用 sub-agent 逐组分析 51 评委，
     覆盖 panel.json 中的 headline/reasoning/score，然后调 stage2 生成报告。
     """
-    # v2.2 · 中文名自动解析: "北部港湾" → "000582.SZ"
+    # v2.3 · 中文名解析 — 支持纠错提示。若输入无法明确解析，早退并返回候选，不继续跑 22 fetcher。
     from lib.market_router import is_chinese_name
+    ti = None
     if is_chinese_name(ticker):
         try:
             from lib import data_sources as _ds
-            resolved = _ds.resolve_chinese_name(ticker)
-            if resolved:
-                print(f"  [resolve] {ticker} → {resolved.full}")
-                ti = resolved
+            r = _ds.resolve_chinese_name_rich(ticker)
+            if r["resolved"] is not None:
+                if r["source"] != "exact":
+                    print(f"  [resolve] {ticker} → {r['resolved'].full} (via {r['source']})")
+                ti = r["resolved"]
+            elif r["candidates"]:
+                # Early-exit with structured suggestions. Write a marker so run.py / agent can react.
+                import json as _json
+                from pathlib import Path as _Path
+                safe_dir = _Path(".cache") / ticker
+                safe_dir.mkdir(parents=True, exist_ok=True)
+                err_payload = {
+                    "status": "name_not_resolved",
+                    "user_input": ticker,
+                    "candidates": r["candidates"],
+                    "message": f"未能确认 '{ticker}' 对应的股票。最接近的候选: "
+                               + ", ".join(f"{c['name']}({c['code']})" for c in r["candidates"][:3]),
+                }
+                (safe_dir / "_resolve_error.json").write_text(
+                    _json.dumps(err_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                print(f"\n🔴 无法确认股票: {ticker!r}")
+                print(f"   你是不是想输入：")
+                for c in r["candidates"][:5]:
+                    print(f"     · {c['name']} ({c['code']})   [编辑距离 {c['distance']}]")
+                print(f"   请用 --force-name <代码> 指定，或用准确名称/代码重跑。")
+                return err_payload
             else:
-                ti = parse_ticker(ticker)
+                ti = parse_ticker(ticker)  # last resort, will likely fail fetcher
         except Exception:
             ti = parse_ticker(ticker)
     else:
@@ -859,12 +883,43 @@ def stage1(ticker: str) -> dict:
     write_task_output(ti.full, "raw_data", raw)
 
     # Data integrity check
-    from lib.data_integrity import validate as _validate_raw, format_report as _fmt_integrity
+    from lib.data_integrity import (
+        validate as _validate_raw,
+        format_report as _fmt_integrity,
+        generate_recovery_tasks as _gen_tasks,
+    )
     _integrity = _validate_raw(raw)
     print("\n" + _fmt_integrity(_integrity))
     raw["_integrity"] = _integrity
-    if _integrity["critical_missing"]:
-        print("  ⚠️  Task 1 有关键字段缺失，下游评估可能不准确")
+
+    # v2.3 · 生成可被 agent 消费的恢复任务清单（不 abort，让 agent 接管补数据）
+    _tasks = _gen_tasks(raw, _integrity)
+    if _tasks:
+        import json as _json
+        from pathlib import Path as _Path
+        gaps_path = _Path(".cache") / ti.full / "_data_gaps.json"
+        gaps_path.parent.mkdir(parents=True, exist_ok=True)
+        gaps_path.write_text(
+            _json.dumps({
+                "ticker": ti.full,
+                "coverage_pct": _integrity.get("coverage_pct", 0),
+                "critical_missing": _integrity.get("critical_missing", False),
+                "tasks": _tasks,
+            }, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        crit_n = sum(1 for t in _tasks if t["severity"] == "critical")
+        print(f"\n{'▓' * 50}")
+        print(f"⚠️  检测到 {len(_tasks)} 个数据缺口 ({crit_n} critical)")
+        print(f"   恢复任务清单: .cache/{ti.full}/_data_gaps.json")
+        print(f"   Agent 必须尝试用以下手段补齐（按优先级）:")
+        print(f"     1. Chrome/Playwright MCP 访问 xueqiu/eastmoney")
+        print(f"     2. MX API (若 MX_APIKEY 已设置)")
+        print(f"     3. WebSearch 精确到代码")
+        print(f"     4. 已有数据逻辑推导")
+        print(f"   仍拿不到的字段 → 在 agent_analysis.json 显式标 data_gap_acknowledged")
+        print(f"   HTML 报告会对这些字段显示 ⚠️ 橙色徽章而非假数据")
+        print(f"{'▓' * 50}")
 
     print("\n🏛  Task 1.5 · 机构级财务建模 (Dims 20-22)")
     from compute_deep_methods import compute_dim_20, compute_dim_21, compute_dim_22
@@ -952,6 +1007,21 @@ def stage2(ticker: str) -> str:
         print(f"   panel_insights: {'✓' if agent_analysis.get('panel_insights') else '✗'}")
         print(f"   narrative_override: {'✓' if agent_analysis.get('narrative_override') else '✗'}")
         print(f"   great_divide_override: {'✓' if agent_analysis.get('great_divide_override') else '✗'}")
+
+        # v2.4 · HARD-GATE-QUALITATIVE 校验（仅警示，不 abort）
+        qd = agent_analysis.get("qualitative_deep_dive") or {}
+        required_dims = ("3_macro", "7_industry", "8_materials", "9_futures", "13_policy", "15_events")
+        missing_qd = [d for d in required_dims if d not in qd or not qd[d].get("evidence")]
+        total_evidence = sum(len((qd.get(d) or {}).get("evidence") or []) for d in required_dims)
+        total_assoc = sum(len((qd.get(d) or {}).get("associations") or []) for d in required_dims)
+        if missing_qd:
+            print(f"   ⚠️  qualitative_deep_dive: 缺失 {len(missing_qd)}/6 维 ({','.join(missing_qd)})")
+            print(f"      → 参考 references/task2.5-qualitative-deep-dive.md")
+            print(f"      → 应 spawn 3 个并行 sub-agent (Macro-Policy / Industry-Events / Cost-Transmission)")
+        else:
+            print(f"   qualitative_deep_dive: ✓ 6 维全覆盖 · evidence {total_evidence} 条 · associations {total_assoc} 条")
+            if total_assoc < 3:
+                print(f"   ⚠️  跨域因果链仅 {total_assoc} 条，task2.5 要求 ≥ 3 条")
     else:
         print(f"\n⚠️  未检测到 agent_analysis.json · 将使用脚本骨架生成 synthesis")
         print(f"   提示: Claude agent 应在 stage1 之后写入 .cache/{ti.full}/agent_analysis.json")
@@ -960,6 +1030,34 @@ def stage2(ticker: str) -> str:
 
     print(f"\n⚖ Task 4 · 综合研判")
     syn = generate_synthesis(raw, dims, panel, agent_analysis=agent_analysis)
+
+    # v2.3 · 合并 _data_gaps.json 进 synthesis，让报告组装环节能渲染橙色徽章/banner。
+    # agent 若在 agent_analysis.json 里显式 ack 了某个 gap，标 resolved=false + note；
+    # 其他未处理的 gap 原样传递给 HTML。
+    from pathlib import Path as _Path
+    import json as _json
+    gaps_path = _Path(".cache") / ti.full / "_data_gaps.json"
+    if gaps_path.exists():
+        try:
+            gaps_doc = _json.loads(gaps_path.read_text(encoding="utf-8"))
+            tasks = gaps_doc.get("tasks", [])
+            # Merge agent's ack if present
+            acks = (agent_analysis or {}).get("data_gap_acknowledged", {}) if agent_analysis else {}
+            for t in tasks:
+                key = f"{t['dim']}.{t['field']}"
+                if key in acks or t["dim"] in acks:
+                    t["status"] = "acknowledged"
+                    t["agent_note"] = acks.get(key, acks.get(t["dim"], ""))
+            syn["data_gaps"] = {
+                "coverage_pct": gaps_doc.get("coverage_pct", 0),
+                "total_gaps": len(tasks),
+                "unresolved": sum(1 for t in tasks if t["status"] == "pending"),
+                "tasks": tasks,
+            }
+            print(f"  data_gaps: {syn['data_gaps']['total_gaps']} 项 · 已 ack {syn['data_gaps']['total_gaps'] - syn['data_gaps']['unresolved']}")
+        except Exception as _e:
+            print(f"  ⚠️ 读取 _data_gaps.json 失败: {_e}")
+
     write_task_output(ti.full, "synthesis", syn)
     print(f"  综合评分: {syn['overall_score']}/100 · {syn['verdict_label']}")
     print(f"  agent_reviewed: {syn.get('agent_reviewed', False)}")
@@ -1012,7 +1110,11 @@ def main(ticker: str = "002273.SZ"):
         # ... agent 审查 panel.json, 写 agent_analysis.json ...
         stage2(ticker)            # 生成报告 (自动合并 agent_analysis)
     """
-    stage1(ticker)
+    result = stage1(ticker)
+    # v2.3 · stage1 可能因中文名无法解析而早退，此时不能继续 stage2
+    if isinstance(result, dict) and result.get("status") == "name_not_resolved":
+        print("\n⚠️  因股票名无法解析，跳过 stage2（不会生成空报告）")
+        return
     report_path = stage2(ticker)
     print(f"\n🎯 完整流程结束 · 报告: {report_path}")
 
