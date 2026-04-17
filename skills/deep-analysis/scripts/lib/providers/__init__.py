@@ -138,6 +138,10 @@ def _auto_register():
         from . import baostock_provider  # noqa
     except Exception:
         pass
+    try:
+        from . import direct_http_provider  # noqa
+    except Exception:
+        pass
 
 
 _auto_register()

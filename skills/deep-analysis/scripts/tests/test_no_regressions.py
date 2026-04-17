@@ -816,6 +816,18 @@ def test_tushare_provider_requires_key():
         if old: os.environ["TUSHARE_TOKEN"] = old
 
 
+def test_direct_http_provider_exists():
+    """v2.10.3 · 直连站点 provider 必须注册（脱离 akshare 包装抓行情）"""
+    from lib import providers
+    p = providers.get("direct_http")
+    assert p is not None, "direct_http provider 未注册"
+    assert p.requires_key is False
+    assert "A" in p.markets and "H" in p.markets and "U" in p.markets
+    # 必须有三级 fallback 入口
+    for method in ("fetch_quote_tencent", "fetch_quote_sina", "fetch_quote"):
+        assert hasattr(p, method), f"direct_http 缺 {method}"
+
+
 def test_parse_ticker_hk_3digit():
     """v2.10.2 · 3 位数字码（如 700/981）必须识别为 HK 不是 A 股"""
     from lib.market_router import parse_ticker
