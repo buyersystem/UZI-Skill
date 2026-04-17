@@ -123,6 +123,36 @@ body::after {
 .market-badge.open { background: var(--bull-tint); color: var(--bull-green); border: 1px solid var(--bull-green); }
 .market-badge.closed { background: var(--bg-tinted); color: var(--text-dim); border: 1px solid var(--border); }
 
+/* ═══════════════ DATA QUALITY BANNER · v2.3 ═══════════════ */
+.data-gap-banner {
+  margin: 16px 0 24px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.04));
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.data-gap-banner .icon { font-size: 22px; line-height: 1; flex-shrink: 0; }
+.data-gap-banner .body { flex: 1; }
+.data-gap-banner .title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; color: #f59e0b; margin-bottom: 4px; letter-spacing: .04em; }
+.data-gap-banner .subtitle { font-size: 13px; color: var(--text-bright); line-height: 1.6; }
+.data-gap-banner .subtitle strong { color: #f59e0b; }
+.data-gap-banner .list { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.data-gap-banner .chip {
+  font-family: 'Fira Code', monospace;
+  font-size: 11px;
+  padding: 3px 10px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 999px;
+}
+.data-gap-banner .chip.ack { background: rgba(148, 163, 184, 0.15); color: var(--text-dim); border-color: var(--border); text-decoration: line-through; }
+.data-gap-banner .hint { margin-top: 8px; font-size: 11px; color: var(--text-dim); letter-spacing: .05em; }
+
 /* ═══════════════ BENTO HERO ═══════════════ */
 .bento-hero {
   display: grid;
@@ -2128,6 +2158,9 @@ footer strong { color: var(--text-dim); }
       <span>· DATA @ {{DATA_FETCHED_AT}} · v0.1.0</span>
     </div>
   </div>
+
+  <!-- ─── DATA QUALITY BANNER · v2.3 (only rendered when _data_gaps.json exists) ─── -->
+  <!-- INJECT_DATA_GAP_BANNER -->
 
   <!-- ─── BENTO HERO ─── -->
   <div class="bento-hero">

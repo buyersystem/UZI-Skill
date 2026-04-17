@@ -2255,6 +2255,63 @@ def _render_competitive_analysis(dim22: dict) -> str:
     '''
 
 
+def _render_data_gap_banner(data_gaps: dict | None) -> str:
+    """v2.3 · Render orange banner listing data gaps. Returns empty string if no gaps.
+
+    Reads synthesis.data_gaps which is populated in stage2() from _data_gaps.json
+    (produced by data_integrity.generate_recovery_tasks). The banner tells readers
+    upfront that the report has known holes — no silent fake numbers.
+    """
+    if not isinstance(data_gaps, dict) or not data_gaps.get("tasks"):
+        return ""
+
+    tasks = data_gaps["tasks"]
+    total = len(tasks)
+    unresolved = data_gaps.get("unresolved", total)
+    ack = total - unresolved
+    cov = data_gaps.get("coverage_pct", 0)
+
+    # Build chip list — critical first, then optional, then enrichment
+    order = {"critical": 0, "optional": 1, "enrichment": 2}
+    sorted_tasks = sorted(tasks, key=lambda t: (order.get(t.get("severity"), 9), t.get("dim", "")))
+    chips_html: list[str] = []
+    for t in sorted_tasks[:20]:
+        cls = "chip"
+        if t.get("status") == "acknowledged":
+            cls += " ack"
+        chips_html.append(f'<span class="{cls}">{t.get("label","?")} · {t.get("dim","?")}</span>')
+    chips_block = "\n      ".join(chips_html)
+    overflow = ""
+    if len(sorted_tasks) > 20:
+        overflow = f'<span class="chip">+{len(sorted_tasks) - 20} 更多</span>'
+
+    subtitle = (
+        f"数据覆盖率 <strong>{cov}%</strong> · "
+        f"共 <strong>{total}</strong> 个字段未从脚本采集到"
+    )
+    if ack:
+        subtitle += f"（其中 <strong>{ack}</strong> 已由 agent 确认"
+        subtitle += "真的拿不到）"
+
+    hint = (
+        "Agent 已尝试浏览器抓取 / MX API / WebSearch / 逻辑推导；"
+        "划线字段为已确认无法补齐，其余字段显示为 “—”。"
+    )
+
+    return f'''<div class="data-gap-banner" role="alert">
+  <div class="icon">⚠️</div>
+  <div class="body">
+    <div class="title">DATA QUALITY · 本报告存在已知数据缺口</div>
+    <div class="subtitle">{subtitle}</div>
+    <div class="list">
+      {chips_block}
+      {overflow}
+    </div>
+    <div class="hint">{hint}</div>
+  </div>
+</div>'''
+
+
 def _render_institutional_section(raw: dict) -> str:
     """Combined dim 20/21/22 renderer — returns the full institutional modeling block."""
     dims = raw.get("dimensions", {}) or {}
@@ -2430,6 +2487,12 @@ def assemble(ticker: str) -> Path:
     template = template.replace(
         "<!-- INJECT_INSTITUTIONAL_MODELING -->",
         _render_institutional_section(raw),
+    )
+
+    # v2.3 · Data quality banner (only renders when synthesis.data_gaps present)
+    template = template.replace(
+        "<!-- INJECT_DATA_GAP_BANNER -->",
+        _render_data_gap_banner(syn.get("data_gaps")),
     )
 
     date = datetime.now().strftime("%Y%m%d")

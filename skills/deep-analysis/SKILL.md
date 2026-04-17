@@ -31,6 +31,48 @@ description: 个股深度分析的核心工作流。当用户要求"深度分析
 5. **矛盾必须呈现，不准和稀泥**：DCF 与 Comps 结论冲突时，**把冲突写进报告**；51 评委分歧大时，**强调分歧本身是信息**。
 6. **Task 1 必须并行执行**（4 个子 agent / wave），串行跑 22 个 fetcher 直接扣分。
 
+### ⛔ HARD-GATE-NAME · 股票名纠错（v2.3）
+
+<HARD-GATE>
+若 `stage1()` 返回 `{"status": "name_not_resolved", "candidates": [...]}`（或生成了
+`.cache/{input}/_resolve_error.json`），你**绝不能**假装猜到正确股票继续跑。
+
+你必须：
+1. 读 `_resolve_error.json` 拿到 `user_input` 和候选列表
+2. 用 `AskUserQuestion` 把 Top 3-5 候选呈现给用户（"你是不是想输入 X？"）
+3. 用户确认后，用**选中的代码**（如 `000582.SZ`）而不是原始名字重跑 `stage1()`
+4. 若候选为空（真查不到），告知用户并建议直接输入代码
+
+唯一例外：用户原话含"自动选最相近的"或明确说"就是 Top1" — 此时可以不问
+</HARD-GATE>
+
+### ⛔ HARD-GATE-DATAGAPS · 数据缺口 agent 必须接管（v2.3）
+
+<HARD-GATE>
+若 `.cache/{ticker}/_data_gaps.json` 存在且 `tasks` 非空，你**必须**在调用
+`stage2()` 之前逐条尝试补齐，按优先级：
+
+1. **浏览器自动化**（最稳）— 用 Chrome/Playwright MCP 打开 xueqiu.com/S/{code}
+   或 quote.eastmoney.com/{code}.html 手动抓字段。特别是 `push2.eastmoney.com`
+   被反爬时，浏览器是唯一能拿到实时行情的通道。
+2. **MX 妙想 API**（若 `MX_APIKEY` 已设置）— 用 `mx_api.MXClient.query()`
+3. **WebSearch** 精确到代码（不要只搜公司名 — 会命中同名无关内容）
+4. **逻辑推导** — 从已有数据算（净利率 = 净利润 / 营收；PE = 市值/净利润）
+
+**仍然拿不到的字段**：在 `agent_analysis.json` 里写：
+```json
+"data_gap_acknowledged": {
+  "0_basic.industry": "已尝试 xueqiu/eastmoney/ws，均返回空 — 可能是新股或暂停上市",
+  "4_peers": "该细分行业上市公司不足 3 家，真的找不到同行"
+}
+```
+stage2 会把这些字段标为"已确认拿不到"，HTML 报告显示划线 chip + "—"而不是假数据。
+
+**绝对禁止**：在补不到数据时用默认值（0 / 空字符串 / "—"）当真实数据用、让规则引擎
+对空 features 打分（会产生"没数据的幻觉"，像之前"北部港湾"那次 panel 35.4% 共识
+其实是空 features 导致的全 fail_msg）。
+</HARD-GATE>
+
 ## 📊 进度条规范
 
 每完成一个 Task，输出一行进度条（20 字符固定宽度）：
