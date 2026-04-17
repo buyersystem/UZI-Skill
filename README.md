@@ -180,6 +180,65 @@ agent 会自动用 `--remote` 启动 Cloudflare Tunnel，给你一个 `https://x
 
 ---
 
+## 🎚️ 三档思考深度（v2.10.3 新增）
+
+给用户自己选择分析力度——快想 / 正常 / 深挖：
+
+```bash
+python run.py 600519 --depth lite     # ⚡ 速判模式（1-2 分钟）
+python run.py 600519                   # 📊 标准分析（5-8 分钟）· 默认
+python run.py 600519 --depth deep      # 🔬 深度研究（15-20 分钟）
+```
+
+或通过环境变量：
+
+```bash
+export UZI_DEPTH=lite       # 或 medium / deep
+python run.py 600519
+```
+
+### 三档差异一览
+
+| 维度 | ⚡ **lite** 速判 | 📊 **medium** 标准 | 🔬 **deep** 机构级 |
+|---|---|---|---|
+| **预计耗时** | 1-2 分钟 | 5-8 分钟 | 15-20 分钟 |
+| **fetcher 维度** | 核心 7 维 | 全 22 维 | 全 22 维 + 强化 fallback |
+| **评委数量** | 10 位代表 | 51 位完整 | 51 位 + **Bull-Bear 结构化辩论** |
+| **机构方法** | 只 DCF | 全 17 种 | 全 17 种 + **Segmental Build-Up** |
+| **ddgs 定性查询** | **全 skip**（省 token）| 按需 · 预算 30 次 | 跑满 · 预算 60 次 |
+| **fund_holders** | Top 5 完整业绩 | Top 20 完整 + 其余清单 | Top 100 完整 |
+| **自查 gate** | critical block | critical block · warning 可 ack | 两级都 block |
+| **Token 消耗（Codex）** | 最省 | 中等 | 最大 |
+| **适用场景** | 随手看 / 老板临时问 / 预判 ETF 成分股 | 日常深度分析 · 写研报 | 投委会备忘录 · 建仓前深挖 |
+
+### 自动降级策略
+
+- **第一次安装** / `.cache/_global` 空时 → 自动切 lite（省首次冷启动时间）
+- **网络预检 3+ 域不通** → 自动切 lite（避免卡死）
+- 手动 `--depth` 始终覆盖自动判定
+
+### 实战选择
+
+| 问题 | 推荐档位 |
+|---|---|
+| "帮我看看这只票能不能买" | `medium`（默认） |
+| "15 分钟内给我个结论" | `lite` |
+| "老板明天投委会要看" | `deep`（含 Bull-Bear 辩论 + bottom-up segmental） |
+| "ETF 代码输进去了（系统会提示选成分股）" | `lite`（成分股快速预判）|
+| "Codex 环境 / 首次安装" | 不用管 · 自动 lite |
+
+### 命令映射（隐式档位）
+
+| 命令 | 隐式档位 |
+|---|---|
+| `/quick-scan 600519` | lite |
+| `/panel-only 600519` | lite |
+| `/analyze-stock 600519` | medium（默认）|
+| `/ic-memo 600519` | deep |
+| `/initiate 600519` | deep |
+
+---
+
 ## 🎭 51 位评审团
 
 不是模板话术。每个人有自己的**量化规则集**（共 180 条），给出的建议必须引用具体命中了哪条：

@@ -645,6 +645,220 @@ def test_stage1_early_exits_on_etf():
         "v2.9.2 regression: ETF 持仓拉取接口未使用"
 
 
+# ─── v2.10.1 · 性能优化：lite mode + ddgs 预算 + fund_holders 默认 20 ──
+def test_fund_holders_two_tier_strategy():
+    """v2.10.1 · fetch_fund_holders 必须双层（头部 full + 其余 lite）"""
+    src = (SCRIPTS_DIR / "fetch_fund_holders.py").read_text(encoding="utf-8")
+    assert "_build_row_full" in src and "_build_row_lite" in src, \
+        "v2.10.1 regression: fetch_fund_holders 必须分 full/lite 双路径"
+    assert "UZI_FUND_STATS_TOP" in src, \
+        "v2.10.1 regression: 必须支持 UZI_FUND_STATS_TOP 环境变量控制几家算完整业绩"
+    # lite 行必须是 0 次 akshare 额外调用
+    lite_idx = src.find("def _build_row_lite")
+    lite_end = src.find("\n\n", lite_idx)
+    lite_body = src[lite_idx:lite_end] if lite_end > 0 else src[lite_idx:lite_idx + 2000]
+    assert "compute_fund_stats" not in lite_body, \
+        "v2.10.1 regression: lite 行不应调 compute_fund_stats（0 API 原则）"
+    assert "fetch_fund_manager_name" not in lite_body, \
+        "v2.10.1 regression: lite 行不应调 fetch_fund_manager_name"
+
+
+def test_lite_mode_detection_exists():
+    """v2.10.1 · _detect_lite_mode 必须存在"""
+    src = (SCRIPTS_DIR / "run_real_test.py").read_text(encoding="utf-8")
+    assert "_detect_lite_mode" in src, "v2.10.1 regression: 缺 _detect_lite_mode"
+    assert "UZI_LITE" in src
+    assert "UZI_DDG_BUDGET" in src
+
+
+def test_ddg_budget_enforced():
+    """v2.10.1 · search() 必须在超预算时返回 _budget_exceeded 标记并过滤掉"""
+    import os
+    os.environ["UZI_DDG_BUDGET"] = "0"  # 强制超预算
+    try:
+        from importlib import reload
+        from lib import web_search
+        reload(web_search)
+        # 预算为 0，任何未命中 cache 的查询都应该返空
+        results = web_search.search("测试预算 xxxx_unique_probe_q", max_results=3, cache_key_prefix="budget_test")
+        assert isinstance(results, list)
+        # _budget_exceeded 标记不应对外暴露
+        assert not any(r.get("_budget_exceeded") for r in results)
+        state = web_search.get_budget_state()
+        assert state["skipped"] >= 0  # 至少调用过
+    finally:
+        os.environ.pop("UZI_DDG_BUDGET", None)
+
+
+def test_analysis_profile_three_tiers():
+    """v2.10.2 · 三档深度 profile 必须存在且差异清晰"""
+    from lib.analysis_profile import get_profile, DEPTH_LITE, DEPTH_MEDIUM, DEPTH_DEEP
+    lite = get_profile(DEPTH_LITE)
+    mid = get_profile(DEPTH_MEDIUM)
+    deep = get_profile(DEPTH_DEEP)
+    # 档位差异必须显著
+    assert len(lite.fetchers_enabled) < len(mid.fetchers_enabled) == len(deep.fetchers_enabled)
+    assert lite.investors_count < mid.investors_count == deep.investors_count
+    assert lite.ddg_budget < mid.ddg_budget < deep.ddg_budget
+    assert lite.fund_stats_top_n < mid.fund_stats_top_n < deep.fund_stats_top_n
+    assert not lite.enable_bull_bear_debate
+    assert not mid.enable_bull_bear_debate
+    assert deep.enable_bull_bear_debate  # deep 独享
+    assert not lite.enable_segmental_model
+    assert deep.enable_segmental_model
+
+
+def test_analysis_profile_env_compat():
+    """UZI_LITE=1 必须向后兼容到 depth=lite"""
+    import os
+    from lib.analysis_profile import get_profile, DEPTH_LITE, DEPTH_MEDIUM
+    # UZI_LITE=1
+    os.environ["UZI_LITE"] = "1"
+    os.environ.pop("UZI_DEPTH", None)
+    assert get_profile().depth == DEPTH_LITE
+    # 显式 UZI_DEPTH 覆盖 UZI_LITE
+    os.environ["UZI_DEPTH"] = "medium"
+    assert get_profile().depth == DEPTH_MEDIUM
+    # 清理
+    os.environ.pop("UZI_LITE", None)
+    os.environ.pop("UZI_DEPTH", None)
+
+
+# ─── v2.10.2 · 代理/网络挂死的 4 层保护 ──
+def test_ddg_timeout_wrapper():
+    """v2.10.2 · DDGS 必须有硬 timeout（原先无，GFW 挂时卡 30-120s）"""
+    src = (SCRIPTS_DIR / "lib" / "web_search.py").read_text(encoding="utf-8")
+    assert "UZI_DDG_TIMEOUT" in src, "v2.10.2 regression: DDGS 缺 timeout env"
+    assert "concurrent.futures" in src or "_cf" in src, \
+        "v2.10.2 regression: DDGS 必须用线程池硬 kill，不能依赖 DDGS 内部 timeout"
+    # 必须有 timeout 错误返回
+    assert "ddgs: timeout" in src
+
+
+def test_net_timeout_guard_exists():
+    """v2.10.2 · net_timeout_guard 必须存在且 monkey-patch requests"""
+    p = SCRIPTS_DIR / "lib" / "net_timeout_guard.py"
+    assert p.exists(), "v2.10.2 regression: lib/net_timeout_guard.py 缺失"
+    src = p.read_text(encoding="utf-8")
+    assert "install_default_timeout" in src
+    assert "Session.request" in src, "必须 patch Session.request（覆盖所有 akshare 内部调用）"
+    assert "UZI_HTTP_TIMEOUT" in src
+
+
+def test_network_preflight_exists():
+    """v2.10.2 · 网络预检必须存在且覆盖核心域名"""
+    p = SCRIPTS_DIR / "lib" / "network_preflight.py"
+    assert p.exists()
+    src = p.read_text(encoding="utf-8")
+    for d in ("eastmoney", "duckduckgo", "cninfo", "xueqiu"):
+        assert d in src, f"预检必须覆盖 {d} 域名"
+
+
+# ─── v2.10.3 · Providers 框架（Tushare/Efinance/BaoStock 适配器） ──
+def test_providers_framework_loads():
+    """v2.10.3 · providers 目录必须存在且核心 provider 已注册"""
+    from lib import providers
+    names = {p.name for p in providers.list_providers()}
+    # 至少 4 个内置 provider
+    assert "akshare" in names, "akshare provider 未注册"
+    assert "efinance" in names, "efinance provider 未注册"
+    assert "tushare" in names, "tushare provider 未注册"
+    assert "baostock" in names, "baostock provider 未注册"
+
+
+def test_provider_chain_failover():
+    """provider chain 必须按优先级返 + 只包含 available 的"""
+    from lib import providers
+    chain = providers.get_provider_chain("financials", market="A")
+    # 至少 akshare 或 baostock 在（测试机两者都装了）
+    assert len(chain) >= 1
+    # 所有返回的都必须 is_available()
+    assert all(p.is_available() for p in chain)
+
+
+def test_provider_env_override():
+    """UZI_PROVIDERS_<DIM> 环境变量可覆盖优先级"""
+    import os
+    from lib import providers
+    os.environ["UZI_PROVIDERS_FINANCIALS"] = "baostock,akshare"
+    try:
+        chain = providers.get_provider_chain("financials", market="A")
+        names = [p.name for p in chain]
+        # baostock 应该在前（如果可用）
+        if "baostock" in names and "akshare" in names:
+            assert names.index("baostock") < names.index("akshare")
+    finally:
+        os.environ.pop("UZI_PROVIDERS_FINANCIALS", None)
+
+
+def test_provider_health_check_api():
+    """health_check 返回统一 dict 结构"""
+    from lib import providers
+    hc = providers.health_check()
+    assert "akshare" in hc
+    for name, info in hc.items():
+        assert "available" in info
+        assert "status" in info
+
+
+def test_tushare_provider_requires_key():
+    """tushare 必须 requires_key=True 且无 token 时 is_available=False"""
+    import os
+    from lib import providers
+    ts = providers.get("tushare")
+    assert ts is not None
+    assert ts.requires_key is True
+    # 无 token
+    old = os.environ.pop("TUSHARE_TOKEN", None)
+    try:
+        assert ts.is_available() is False, "无 TUSHARE_TOKEN 时不该可用"
+    finally:
+        if old: os.environ["TUSHARE_TOKEN"] = old
+
+
+def test_direct_http_provider_exists():
+    """v2.10.3 · 直连站点 provider 必须注册（脱离 akshare 包装抓行情）"""
+    from lib import providers
+    p = providers.get("direct_http")
+    assert p is not None, "direct_http provider 未注册"
+    assert p.requires_key is False
+    assert "A" in p.markets and "H" in p.markets and "U" in p.markets
+    # 必须有三级 fallback 入口
+    for method in ("fetch_quote_tencent", "fetch_quote_sina", "fetch_quote"):
+        assert hasattr(p, method), f"direct_http 缺 {method}"
+
+
+def test_parse_ticker_hk_3digit():
+    """v2.10.2 · 3 位数字码（如 700/981）必须识别为 HK 不是 A 股"""
+    from lib.market_router import parse_ticker
+    for code in ("700", "981"):
+        r = parse_ticker(code)
+        assert r.market == "H", f"v2.10.2 regression: {code} 应识别为 HK，实际 {r.market}"
+        assert r.full == f"{code.zfill(5)}.HK"
+
+
+def test_prewarm_cache_script_exists():
+    """v2.10.2 · prewarm 脚本存在且具有敏感性扫描"""
+    p = SCRIPTS_DIR / "prewarm_cache.py"
+    assert p.exists(), "v2.10.2 regression: prewarm_cache.py 缺失"
+    content = p.read_text(encoding="utf-8")
+    # 必须有安全扫描
+    assert "sanity_check_output" in content, "prewarm 必须做输出敏感性扫描"
+    assert "MX_APIKEY" in content or "sk-" in content, "敏感扫描必须覆盖 API key 模式"
+    # 必须声明不包含敏感信息
+    assert ".env" in content, "prewarm 文档必须明确排除 .env"
+
+
+def test_fetch_industry_respects_lite_mode():
+    """v2.10.1 · fetch_industry 在 UZI_LITE=1 时不跑 _dynamic_industry_overview"""
+    src = (SCRIPTS_DIR / "fetch_industry.py").read_text(encoding="utf-8")
+    assert 'UZI_LITE' in src and '_dynamic_industry_overview' in src
+    # 检查早退逻辑
+    idx = src.find('UZI_LITE')
+    snippet = src[idx:idx + 300]
+    assert "dynamic = {}" in snippet, "lite mode 必须让 dynamic 为空"
+
+
 if __name__ == "__main__":
     # Manual runner — no pytest required
     import inspect

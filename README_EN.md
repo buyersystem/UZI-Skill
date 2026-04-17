@@ -179,6 +179,65 @@ The agent spins up a Cloudflare Tunnel and gives you a `https://xxx.trycloudflar
 
 ---
 
+## 🎚️ Three Analysis Depths (new in v2.10.3)
+
+Let users pick how much thinking they want — quick / standard / deep-dive:
+
+```bash
+python run.py 600519 --depth lite     # ⚡ Quick read (1-2 min)
+python run.py 600519                    # 📊 Standard (5-8 min) · default
+python run.py 600519 --depth deep       # 🔬 Institutional (15-20 min)
+```
+
+Or via env var:
+
+```bash
+export UZI_DEPTH=lite       # or medium / deep
+python run.py 600519
+```
+
+### Differences
+
+| Aspect | ⚡ **lite** | 📊 **medium** | 🔬 **deep** |
+|---|---|---|---|
+| **Runtime** | 1-2 min | 5-8 min | 15-20 min |
+| **Fetchers** | Core 7 dims | All 22 dims | All 22 + reinforced fallback |
+| **Investors** | 10 representatives | 51 full panel | 51 + **Bull-Bear structured debate** |
+| **Institutional methods** | DCF only | All 17 | All 17 + **Segmental Build-Up** |
+| **ddgs qualitative queries** | **all skipped** (saves tokens) | on-demand · budget 30 | full throttle · budget 60 |
+| **fund_holders** | Top 5 with full 5Y stats | Top 20 full + rest as listing | Top 100 full |
+| **Self-review gate** | critical blocks | critical blocks · warning ack-able | both block |
+| **Token cost (Codex)** | minimal | moderate | maximum |
+| **Use case** | Quick glance · boss just asked · preview ETF holdings | Daily deep analysis · writing research | Investment committee memo · pre-position deep dive |
+
+### Auto-downgrade
+
+- **First install** / empty `.cache/_global` → auto-switches to lite (saves cold-start time)
+- **Network preflight 3+ domains unreachable** → auto lite (prevents hanging)
+- Manual `--depth` always overrides auto-detection
+
+### Picking the right depth
+
+| Question | Recommended |
+|---|---|
+| "Can I buy this stock?" | `medium` (default) |
+| "Give me a verdict in 15 minutes" | `lite` |
+| "Prepping for investment committee tomorrow" | `deep` (includes Bull-Bear debate + bottom-up segmental) |
+| "I typed an ETF code — system asked me to pick a holding" | `lite` (quick verdict on component) |
+| "Codex environment / first install" | Don't worry — auto lite |
+
+### Implicit depth per command
+
+| Command | Implicit depth |
+|---|---|
+| `/quick-scan 600519` | lite |
+| `/panel-only 600519` | lite |
+| `/analyze-stock 600519` | medium (default) |
+| `/ic-memo 600519` | deep |
+| `/initiate 600519` | deep |
+
+---
+
 ## 🎭 51 Investor Jury
 
 Not template phrases. Each investor has their own **quantified rule set** (180 rules total) + their own **real quoted voice** + their own **authentic decision profile** (time horizon / position sizing / what-would-change-my-mind).

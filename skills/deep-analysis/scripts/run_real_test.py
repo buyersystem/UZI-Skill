@@ -157,8 +157,22 @@ def collect_raw_data(ticker: str, max_workers: int = 6, resume: bool = True) -> 
     # ── Wave 2: all other 19 fetchers in parallel ──
     # v2.6 · 加 per-fetcher timeout + overall timeout 防止 hang 卡死整条流水线
     # v2.6 · resume: 已缓存有效的 dim 直接复用，不重新调 fetcher
+    # v2.10.2 · 根据 analysis_profile 决定跑哪几维（lite 只跑核心 7 维）
     wave2_start = time.time()
+    try:
+        from lib.analysis_profile import get_profile as _get_profile
+        _profile = _get_profile()
+        enabled_dims = _profile.fetchers_enabled
+    except Exception:
+        enabled_dims = None
     all_others = [(m, d, a) for m, d, a in FETCHER_MAP if d != "0_basic"]
+    # 按 profile 过滤（None 时不过滤，向后兼容）
+    if enabled_dims is not None:
+        before = len(all_others)
+        all_others = [(m, d, a) for m, d, a in all_others if d in enabled_dims]
+        skipped_profile = before - len(all_others)
+        if skipped_profile > 0:
+            print(f"  [profile] {_profile.depth} 模式跳过 {skipped_profile} 个维度")
     # 分流
     others = []
     skipped_cached = []
@@ -265,9 +279,11 @@ def collect_raw_data(ticker: str, max_workers: int = 6, resume: bool = True) -> 
     def _fund_holders():
         try:
             import fetch_fund_holders
-            # BUG#R2 fix: v2.4 已把 fetcher limit 改为 None（不截断），但 wave3 调用
-            # 还是写死 limit=6 → 报告里只显示 6 个基金。这次同步移除调用层的截断。
-            # 茅台 649 家、浙江东方 80 家全收录；render_fund_managers 已支持紧凑行展开。
+            # v2.10.1 · 清单 limit 保持 None（全量列出 649 家），慢在 fetch_fund_holders
+            # 内部已改成"头部 top N 算完整 5Y 业绩，其余只列名字"双层策略。
+            # UZI_FUND_STATS_TOP=N 控制几家算完整业绩（默认 20）。
+            # 用户原问题："基金拉全不是直接检索就行了吗" — 对，清单一次 API 就够，
+            # 过去慢是因为每家都跑 5Y NAV 计算，现在只头部跑，其他点 fund_url 看详情。
             fh = fetch_fund_holders.main(ticker, limit=None)
             return ("fund_managers", (fh.get("data") or {}).get("fund_managers", []), None)
         except Exception as e:
@@ -1409,6 +1425,40 @@ def generate_synthesis(raw: dict, dims_scored: dict, panel: dict, agent_analysis
     }
 
 
+def _detect_lite_mode() -> tuple[bool, str]:
+    """v2.10.1 · 三种方式决定是否进 lite mode:
+
+    1. UZI_LITE=1 env（显式）
+    2. UZI_LITE=auto 或未设置 → 自动检测首次安装（.cache/_global 为空）
+    3. UZI_LITE=0 → 强制关闭
+
+    Lite mode 影响:
+      - fetch_macro / fetch_policy / fetch_moat 跳过 ddgs（返空让 agent 知道）
+      - fetch_industry 跳过 _dynamic_industry_overview（省 3-9 次 ddgs）
+      - wave3 fund_managers 不改（已有 UZI_FUND_LIMIT 控制）
+      - HTML 报告正常生成，但会显示"⚡ LITE MODE 跑完后可去 LITE=0 补数据"
+
+    返回 (is_lite: bool, reason: str)
+    """
+    import os
+    from pathlib import Path
+    val = os.environ.get("UZI_LITE", "auto").lower()
+    if val in ("1", "true", "yes", "on"):
+        return True, "UZI_LITE=1 显式启用"
+    if val in ("0", "false", "no", "off"):
+        return False, "UZI_LITE=0 显式关闭"
+    # auto 模式：检测 _global api_cache 是否为空（首次安装判定）
+    global_cache = Path(".cache/_global/api_cache")
+    if not global_cache.exists():
+        return True, "首次安装（.cache/_global 不存在）自动 lite"
+    try:
+        if len(list(global_cache.iterdir())) < 5:
+            return True, "cache 非常冷（_global/api_cache 条目 < 5）自动 lite"
+    except Exception:
+        pass
+    return False, "cache 已预热，full mode"
+
+
 def stage1(ticker: str) -> dict:
     """Stage 1: 数据采集 + 建模 + 规则引擎骨架分。
 
@@ -1416,6 +1466,37 @@ def stage1(ticker: str) -> dict:
     Claude 应该在 stage1 之后介入，用 sub-agent 逐组分析 51 评委，
     覆盖 panel.json 中的 headline/reasoning/score，然后调 stage2 生成报告。
     """
+    # v2.10.1 · 性能模式自动探测（解决 codex + 首次安装机器慢的问题）
+    import os
+    # v2.10.2 · 全局 requests timeout 兜底（akshare 内部调用不会卡死）
+    try:
+        from lib import net_timeout_guard  # noqa: F401（import 副作用装 monkey-patch）
+    except Exception as _e:
+        print(f"  ⚠️ timeout guard load failed: {_e}")
+
+    # v2.10.2 · 网络预检（代理/GFW 挂了立即提示，不让 20 fetcher 挨个超时 30 分钟）
+    skip_preflight = os.environ.get("UZI_SKIP_PREFLIGHT") == "1"
+    if not skip_preflight:
+        try:
+            from lib.network_preflight import run_preflight
+            pre = run_preflight(verbose=True, timeout=3.0)
+            # 3 个以上不通 → 强制 lite
+            if pre["critical_failures"] >= 3 and os.environ.get("UZI_LITE") != "0":
+                os.environ["UZI_LITE"] = "1"
+                print(f"   ⚡ 网络严重受限，自动切 lite 模式防止挂太久\n")
+        except Exception as _e:
+            print(f"  ⚠️ preflight failed (非致命): {_e}")
+
+    is_lite, lite_reason = _detect_lite_mode()
+    if is_lite:
+        os.environ["UZI_LITE"] = "1"  # 下游 fetcher 能读
+        os.environ.setdefault("UZI_DDG_BUDGET", "15")  # 全局 ddgs 预算上限
+        print(f"\n⚡ LITE MODE: {lite_reason}")
+        print(f"   · 跳过 fetch_macro/policy/moat 的 ddgs 查询（返回空让 agent 自己补）")
+        print(f"   · fetch_industry 跳过动态景气度查询（省 3-9 次 ddgs）")
+        print(f"   · wave3 fund_holders 默认 top 20（UZI_FUND_LIMIT=all 可覆盖）")
+        print(f"   · 全局 ddgs 预算 15 次/ticker（超出自动 skip）")
+        print(f"   · 完整跑请 UZI_LITE=0 && python run.py <ticker>\n")
     # v2.3 · 中文名解析 — 支持纠错提示。若输入无法明确解析，早退并返回候选，不继续跑 22 fetcher。
     from lib.market_router import is_chinese_name
     ti = None

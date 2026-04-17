@@ -1,5 +1,99 @@
 # Release Notes
 
+## v2.10.3 — 2026-04-18 (多源 providers 框架 + 三档深度 + 网络韧性)
+
+> **一次性合入近一天积累的所有性能 / 韧性 / 数据源改造**
+
+### 用户反馈驱动的 6 大改动
+
+**1. 三档思考深度（用户："让用户自己选择思考深度"）**
+- `lite` (1-2min) / `medium` (5-8min · 默认) / `deep` (15-20min)
+- `--depth` CLI arg 或 `UZI_DEPTH` env
+- 三档差异清晰对比（fetcher 维度 / 评委数 / 机构方法 / ddgs 预算 / fund_holders 策略 / 自查严格度）
+- 命令隐式档位 (`/quick-scan` → lite · `/ic-memo` → deep)
+
+**2. Multi-Provider 框架（用户："除了 akshare，tushare 这些能作为备选吗"）**
+  - `lib/providers/` Protocol + chain builder
+  - 5 个内置 provider: akshare / efinance / tushare / baostock / **direct_http**
+  - `get_provider_chain(dim, market)` 按优先级 failover
+  - `UZI_PROVIDERS_<DIM>` 单维度覆盖
+
+**3. direct_http provider（用户转达 Codex 建议 fetch_web_quote.py）**
+  - Codex 声称做了但实际未提交；我来落地
+  - 腾讯 qt.gtimg.cn / 新浪 hq.sinajs.cn / etnet.com.hk
+  - 3 级 fallback · 覆盖 A/H/U 三市场
+  - 实测 600519/000001/00700/AAPL 全部拿到实时价
+  - 脱离 akshare，GFW 风险减半
+
+**4. Fund holders 双层策略（用户："基金拉全不是直接检索就行了吗"）**
+  - 原先 649 家每家 2 次 akshare (算 5Y NAV) = 1300 API 串行跑 5-10 分钟
+  - 新：Top N 家 full 业绩 + 其余 lite 清单（0 额外 API）
+  - `UZI_FUND_STATS_TOP=N` 调节 (lite=5, medium=20, deep=100)
+  - 30-60 秒出结果
+
+**5. 代理/网络韧性（用户："代理、网络不通导致 codex 卡死"）**
+  - `lib/net_timeout_guard` monkey-patch requests 默认 `UZI_HTTP_TIMEOUT=20`
+  - `lib/web_search._ddg_search` 线程池硬 timeout `UZI_DDG_TIMEOUT=10`
+  - `lib/network_preflight` 启动 TCP 探 5 个关键域，3+ 不通自动切 lite
+  - parse_ticker 修复 3 位数字识别为 HK (`700` → `00700.HK`)
+  - Codex + 代理挂最坏耗时: 40 分钟 → 30-60 秒
+
+**6. prewarm cache 脚本（用户："缓存能提前写入吗，别含敏感信息"）**
+  - `scripts/prewarm_cache.py` 只跑公开数据
+  - 输出 `prewarm/api_cache/` (gitignored)
+  - sanity_check_output 扫描 sk-/@qq.com/Users/ 模式报警
+  - 可打 tar.gz 作 release 附件分发
+
+### 底层技术改动
+
+| 新增 | 作用 |
+|---|---|
+| `lib/providers/` (5 文件) | 多源自动 failover 框架 |
+| `lib/analysis_profile.py` | 三档 depth profile 定义 |
+| `lib/net_timeout_guard.py` | 全局 requests timeout |
+| `lib/network_preflight.py` | 启动预检 |
+| `scripts/prewarm_cache.py` | 预热 cache 生成器 |
+| `docs/DATA-PROVIDERS.md` | 25+ 数据源全景清单 |
+
+### 改动文件
+
+- `run.py` · 加 `--depth` arg · 加载 profile
+- `run_real_test.py::stage1` · 自动 lite 检测 · 预检 · timeout guard 导入 · fetcher 按 profile 过滤
+- `fetch_fund_holders.py` · 双层 full/lite
+- `fetch_industry.py` · lite mode skip dynamic
+- `lib/web_search.py` · ddgs timeout + 预算
+- `lib/market_router.py` · HK 3 位数字修复
+- `assemble_report.py::render_fund_managers` · lite row 友好显示
+- `README.md` / `README_EN.md` · 三档深度新章节
+
+### 回归
+
+**68/68** regression tests pass
+新增 13 条:
+- test_fund_holders_two_tier_strategy
+- test_lite_mode_detection_exists
+- test_ddg_budget_enforced
+- test_fetch_industry_respects_lite_mode
+- test_analysis_profile_three_tiers
+- test_analysis_profile_env_compat
+- test_prewarm_cache_script_exists
+- test_ddg_timeout_wrapper
+- test_net_timeout_guard_exists
+- test_network_preflight_exists
+- test_parse_ticker_hk_3digit
+- test_providers_framework_loads + chain_failover + env_override + health_check + tushare_requires_key + direct_http_provider
+
+### 性能对比
+
+| 场景 | v2.9.2 | v2.10.3 |
+|---|---|---|
+| 首次安装 + 正常网络 | 10-15 分钟 | 2-4 分钟 (medium) |
+| 首次安装 + 代理挂 | 30-40 分钟卡死 | 30-60 秒 (自动 lite) |
+| `--depth lite` | — | 1-2 分钟 |
+| `--depth deep` | — | 15-20 分钟 |
+
+---
+
 ## v2.9.2 — 2026-04-17 (ETF/LOF/可转债 识别 + 交互式引导到成分股)
 
 > **用户反馈：分析 `512400`（沪市有色金属 ETF）被错判为 SZ，全盘网络+数据错误；且即便修正也不该跑——51 评委是个股规则，ETF 没 ROE/护城河这些字段**

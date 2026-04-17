@@ -137,6 +137,13 @@ def parse_ticker(raw: str) -> TickerInfo:
         code = s.removesuffix(".HK").lstrip("0") or "0"
         return TickerInfo(raw=raw, code=code, full=f"{code.zfill(5)}.HK", market="H")
 
+    # v2.10.2 · 3-位数纯数字（如 "700"/"981"）A 股不存在，走 HK
+    # 原逻辑：_RE_A_NUMERIC 要求 6 位，_RE_HK 匹配 4-5 位 → "700" 3 位都不匹配
+    # 落到最后 A 股兜底 → 错判为 A 股 code=700
+    if s.isdigit() and 3 <= len(s) <= 5:
+        padded = s.zfill(5)
+        return TickerInfo(raw=raw, code=s.lstrip("0") or "0", full=f"{padded}.HK", market="H")
+
     if _RE_HK.match(s) and not _RE_US.match(s):
         return TickerInfo(raw=raw, code=s.lstrip("0") or "0", full=f"{s.zfill(5)}.HK", market="H")
 

@@ -170,8 +170,13 @@ def main(industry: str) -> dict:
     #   1. INDUSTRY_ESTIMATES 硬编码（手工策展的 7 个高频行业保留做 anchor）
     #   2. search_trusted 动态查权威域（236 个未覆盖行业的兜底）
     #   3. cninfo 行业 PE 加权 metrics（独立源，始终尝试）
+    # v2.10.1 · lite mode 跳过 dynamic 查询（节省 3-9 次 ddgs 请求）
+    import os
     est = _best_industry_match(industry)
-    dynamic = {} if est else _dynamic_industry_overview(industry)
+    if os.environ.get("UZI_LITE") == "1":
+        dynamic = {}
+    else:
+        dynamic = {} if est else _dynamic_industry_overview(industry)
 
     # Get cninfo aggregated metrics
     cninfo_metrics = _cninfo_industry_metrics(industry)

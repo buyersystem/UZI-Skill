@@ -24,6 +24,45 @@ _SEARCH_TTL = 12 * 60 * 60  # 12h — news can update but we don't need bleeding
 
 
 # ═══════════════════════════════════════════════════════════════
+# v2.10.1 · 全局 ddgs 预算（防止首次跑爆炸 + Codex token 消耗过大）
+# ═══════════════════════════════════════════════════════════════
+# UZI_LITE=1 时 search() 进入严格预算模式：全生命周期最多 N 次真实搜索
+# （命中 cache 的不计）。超出后直接返空，agent 会看到空结果知道走备选。
+import threading as _threading
+_BUDGET_LOCK = _threading.Lock()
+_BUDGET_STATE = {"used": 0, "skipped": 0}
+
+
+def _budget_allows() -> bool:
+    import os
+    cap_raw = os.environ.get("UZI_DDG_BUDGET")
+    if not cap_raw:
+        return True  # 未设预算 = 无限
+    try:
+        cap = int(cap_raw)
+    except ValueError:
+        return True
+    with _BUDGET_LOCK:
+        return _BUDGET_STATE["used"] < cap
+
+
+def _budget_mark_used(n: int = 1) -> None:
+    with _BUDGET_LOCK:
+        _BUDGET_STATE["used"] += n
+
+
+def _budget_mark_skipped(n: int = 1) -> None:
+    with _BUDGET_LOCK:
+        _BUDGET_STATE["skipped"] += n
+
+
+def get_budget_state() -> dict:
+    """让 fetcher 和 self_review 能查用量."""
+    with _BUDGET_LOCK:
+        return dict(_BUDGET_STATE)
+
+
+# ═══════════════════════════════════════════════════════════════
 # v2.7.3 · Trusted authority domains per dimension
 # ═══════════════════════════════════════════════════════════════
 # 把 Codex 建议的权威媒体 + 官方宏观源映射到定性维度。fetcher 可以调
@@ -71,16 +110,25 @@ def trusted_domains_for(dim_key: str) -> tuple[str, ...]:
 
 
 def _ddg_search(query: str, max_results: int = 10, region: str = "cn-zh") -> list[dict]:
+    """v2.10.2 · 加硬超时保护（代理/GFW 挂时卡 60s+ 的核心原因）."""
     if not _DDGS_OK:
         return []
-    try:
+    # 用独立线程 + 硬超时把 DDGS 内部无 timeout 的 requests 兜住
+    # UZI_DDG_TIMEOUT 可调（默认 10 秒）
+    import os, concurrent.futures as _cf
+    timeout_sec = int(os.environ.get("UZI_DDG_TIMEOUT", "10"))
+
+    def _inner():
         with DDGS() as d:
-            results = list(d.text(
-                query,
-                region=region,
-                safesearch="off",
-                max_results=max_results,
+            return list(d.text(
+                query, region=region, safesearch="off", max_results=max_results,
             ))
+    try:
+        with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                results = pool.submit(_inner).result(timeout=timeout_sec)
+            except _cf.TimeoutError:
+                return [{"error": f"ddgs: timeout > {timeout_sec}s（代理/网络不通？）"}]
         # Normalize fields
         return [
             {
@@ -114,16 +162,24 @@ def search(query: str, max_results: int = 10, cache_key_prefix: str = "ws") -> l
 
     Includes a quality filter to remove dictionary/Wikipedia garbage results
     that match Chinese character definitions instead of stock analysis.
+
+    v2.10.1 · 命中 cache 的不占预算；未命中 cache 时检查 UZI_DDG_BUDGET 预算。
     """
     key = f"{cache_key_prefix}__{query[:100]}__n{max_results}"
-    raw = cached(
-        "_global",
-        key,
-        lambda: _ddg_search(query, max_results=max_results),
-        ttl=_SEARCH_TTL,
-    )
-    # Quality filter: remove dictionary/wikipedia garbage
-    return [r for r in raw if not _is_garbage_result(r)]
+
+    # 先检查 cache 是否命中 —— 命中不占预算
+    from lib.cache import cached, TTL_HOURLY  # re-import for scope
+    # 自定义：先看 cache 有没有，没 cache 时查预算
+    def _fetcher():
+        if not _budget_allows():
+            _budget_mark_skipped()
+            return [{"_budget_exceeded": True,
+                     "body": "全局 ddgs 预算已用尽（UZI_DDG_BUDGET），agent 请用 cached / hardcoded 数据"}]
+        _budget_mark_used()
+        return _ddg_search(query, max_results=max_results)
+
+    raw = cached("_global", key, _fetcher, ttl=_SEARCH_TTL)
+    return [r for r in raw if not _is_garbage_result(r) and not r.get("_budget_exceeded")]
 
 
 def search_trusted(
