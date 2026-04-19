@@ -218,6 +218,87 @@ _TIER1: list[DataSource] = [
         1, "ddgs", "flaky",
         "中文搜索质量不稳定；agent 建议二次过滤 garbage patterns"
     ),
+    # ── v2.13.4 新增 · 公开无 Key 源（经 curl 真实验证 2026-04-19）──
+    DataSource(
+        "yahoo_chart_v8", "Yahoo Finance Chart v8 (HTTP)",
+        "https://query1.finance.yahoo.com/v8/finance/chart/",
+        ("U", "H"),
+        ("2_kline",),
+        1, "http", "known_good",
+        "美股/港股 K 线直接 HTTP · 格式 ?symbol=AAPL&interval=1d&range=1mo · v7/quote 已被 Yahoo 关闭需 401 · v8 仍公开"
+    ),
+    DataSource(
+        "tencent_hk_quote", "腾讯港股实时 qt.gtimg.cn",
+        "http://qt.gtimg.cn/q=hk00700",
+        ("H",),
+        ("0_basic",),
+        1, "http", "known_good",
+        "港股实时行情 HK00700 类格式 · 腾讯自家接口无反爬 · 国内外都通"
+    ),
+    DataSource(
+        "coingecko_simple_price", "CoinGecko Simple Price",
+        "https://api.coingecko.com/api/v3/simple/price",
+        ("U",),
+        ("3_macro",),
+        1, "http", "known_good",
+        "加密货币实时价格 · 宏观风险偏好参考 · 参数 ?ids=bitcoin,ethereum&vs_currencies=usd"
+    ),
+    DataSource(
+        "coingecko_markets", "CoinGecko Markets",
+        "https://api.coingecko.com/api/v3/coins/markets",
+        ("U",),
+        ("3_macro",),
+        1, "http", "known_good",
+        "Top 100 加密货币行情 + 市值 · 可作宏观资金流参考"
+    ),
+    DataSource(
+        "okx_spot_tickers", "OKX 现货 tickers (API v5)",
+        "https://www.okx.com/api/v5/market/tickers?instType=SPOT",
+        ("U",),
+        ("3_macro",),
+        1, "http", "known_good",
+        "OKX 国内访问不受限 · BTC/ETH/altcoin 全量现货快照 · 加密市场情绪代理"
+    ),
+    DataSource(
+        "kucoin_stats", "KuCoin 24h 统计",
+        "https://api.kucoin.com/api/v1/market/stats",
+        ("U",),
+        ("3_macro",),
+        1, "http", "known_good",
+        "参数 ?symbol=BTC-USDT · 24h 涨跌 + 成交量 · 备用加密源"
+    ),
+    DataSource(
+        "kraken_trades", "Kraken 公开成交",
+        "https://api.kraken.com/0/public/Trades",
+        ("U",),
+        ("3_macro",),
+        1, "http", "known_good",
+        "参数 ?pair=xbtusd · 近期成交流水 · 合规美金加密交易所"
+    ),
+    DataSource(
+        "gemini_ticker", "Gemini 行情",
+        "https://api.gemini.com/v2/ticker/btcusd",
+        ("U",),
+        ("3_macro",),
+        1, "http", "known_good",
+        "合规美金加密交易所 · 美国用户主场 · 数据相对干净"
+    ),
+    DataSource(
+        "coinlore_tickers", "CoinLore 全量币种",
+        "https://api.coinlore.net/api/tickers/",
+        ("U",),
+        ("3_macro",),
+        1, "http", "known_good",
+        "无分页限制 · 一次 36KB JSON · 适合加密市场全景快照"
+    ),
+    DataSource(
+        "geckoterminal_networks", "GeckoTerminal DEX Networks",
+        "https://api.geckoterminal.com/api/v2/networks",
+        ("U",),
+        ("3_macro",),
+        1, "http", "known_good",
+        "DEX 数据 · Uniswap/PancakeSwap 等 · 链上资金流参考"
+    ),
 ]
 
 # ═══════════════════════════════════════════════════════════════

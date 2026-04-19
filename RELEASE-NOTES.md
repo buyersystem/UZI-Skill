@@ -1,5 +1,57 @@
 # Release Notes
 
+## v2.13.4 — 2026-04-19 (新增 10 个经 curl 验证的无 Key 公开数据源)
+
+> **用户提供 Grok 清单 20+ 个 "全网最全" 无需 Key 的行情接口** · 批量 curl 真实验证 · 过滤无效项 · 9 有效加密源 + 1 Yahoo Chart v8 + 1 腾讯港股 quote 注册入库
+
+### 验证方法
+
+所有端点经 `curl -w "%{http_code}"` 真实 HTTP 请求 · 国内网络环境 · 8s 超时 · 记录 response size + 前 120 字节样本
+
+### 新增 10 源（`data_source_registry.py` SOURCES 54→64）
+
+**Yahoo Chart v8**（US+HK · K线）· v7 quote 已被 Yahoo 关闭（401）· v8 仍公开可用
+
+**腾讯港股 quote**（HK · basic）· `qt.gtimg.cn/q=hk00700` · 国内外都通
+
+**加密源 8 个**（U · 3_macro 维度 · 作全球流动性 / 资金流参考）：
+1. CoinGecko Simple Price · `api.coingecko.com/api/v3/simple/price`
+2. CoinGecko Markets · `api.coingecko.com/api/v3/coins/markets`
+3. OKX 现货 tickers · `okx.com/api/v5/market/tickers?instType=SPOT`（国内访问不受限）
+4. KuCoin 24h stats
+5. Kraken 公开成交
+6. Gemini 行情
+7. CoinLore 全量币种（36KB JSON 快照）
+8. GeckoTerminal DEX networks
+
+### 验证为无效不入库的 5 源
+
+| 源 | 原因 |
+|---|---|
+| Sina `hq.sinajs.cn/list=` | 403 Forbidden 国内反爬 |
+| Netease `quotes.money.163.com/service/chddata.html` | 502 Bad Gateway |
+| Yahoo v7 `v7/finance/quote` | 401 Unauthorized · Yahoo 已关闭公开访问 |
+| Binance spot/24hr/futures | 451 Restricted Location · 国内 IP 封 |
+| CoinCap / CoinDesk v1 | 连接失败 |
+
+### 使用场景
+
+- `data_sources.fetch_kline` 美股/港股 fallback 链加 yahoo_chart_v8
+- `fetch_macro` 加 Crypto 作流动性指标（BTC 跌破某关键价 · A 股风险偏好下行信号）
+- 港股基本面加腾讯 quote 作无反爬第 N 层备源
+
+### 回归测试
+
+- 新增 `tests/test_v2_13_4_new_sources.py` · 8 个用例
+- 验证 10 个新源按 ID 可查 / 加密源全标 3_macro / yahoo_v8 覆盖 U+H 2_kline / 无重复 ID / http_sources_for 查询正确
+- 全量 **181 passed**（v2.13.3 173 + 新 8）
+
+### 升级
+
+`git pull origin main` · registry 立即生效 · 后续 fetcher 扩展可复用（v2.13.4 仅登记 · 未自动接入各 fetcher · 下版本按需接入）
+
+---
+
 ## v2.13.3 — 2026-04-19 (51 评委规则全员历史立场还原)
 
 > **用户反馈**："林奇是不是有点激进？他历史上的持仓和操作，麻烦你核对一下" · 中际旭创 300308.SZ 实测发现 **19 人给 100 分** 严重不合理，多位评委立场与历史不符
