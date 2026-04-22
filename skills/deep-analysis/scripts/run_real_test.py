@@ -750,12 +750,77 @@ def generate_panel(dims_scored: dict, raw: dict) -> dict:
     bullish = sig_dist.get("bullish", 0)
     neutral = sig_dist.get("neutral", 0)
     consensus = (bullish + NEUTRAL_WEIGHT * neutral) / max(active_count, 1) * 100
+
+    # v2.15.4 · 按流派打分 · 每个 school 独立产出 consensus / avg_score / verdict
+    # 动机：用户反馈"除了总分还要看每个流派各自给的分"·
+    # 譬如白马消费股：价值派 85 分（重仓），技术派 30 分（趋势破位）·
+    # 现在可以一眼看出"不同哲学得出的结论有多不同"
+    GROUP_META = {
+        "A": {"label": "经典价值派", "desc": "巴菲特 / 格雷厄姆 / 费雪 / 芒格 一脉"},
+        "B": {"label": "成长派",     "desc": "彼得·林奇 / 欧奈尔 / 蒂尔 / 伍德 一脉"},
+        "C": {"label": "宏观派",     "desc": "索罗斯 / 达利欧 / 马克斯 一脉"},
+        "D": {"label": "技术派",     "desc": "利弗莫尔 / Minervini / 达瓦斯 一脉"},
+        "E": {"label": "中式价投",   "desc": "段永平 / 张坤 / 朱少醒 / 冯柳 一脉"},
+        "F": {"label": "A 股游资",   "desc": "龙虎榜顶流 23 位·章盟主/孙哥/赵老哥为代表"},
+        "G": {"label": "量化派",     "desc": "Simons / Thorp / Shaw 一脉"},
+    }
+
+    def _consensus_to_verdict(c: float) -> str:
+        """流派级 verdict · 阈值与综合分保持一致（v2.11 thresholds）."""
+        if c >= 80: return "重仓"
+        if c >= 65: return "买入"
+        if c >= 50: return "关注"
+        if c >= 35: return "谨慎"
+        return "回避"
+
+    by_group: dict[str, list[dict]] = {}
+    for inv in investors_out:
+        by_group.setdefault(inv.get("group", "?"), []).append(inv)
+
+    school_scores: dict[str, dict] = {}
+    for g in sorted(by_group.keys()):
+        members = by_group[g]
+        n_members = len(members)
+        active_m = [m for m in members if m.get("signal") != "skip"]
+        n_active = len(active_m)
+        g_bull = sum(1 for m in members if m.get("signal") == "bullish")
+        g_neu  = sum(1 for m in members if m.get("signal") == "neutral")
+        g_bear = sum(1 for m in members if m.get("signal") == "bearish")
+        g_skip = sum(1 for m in members if m.get("signal") == "skip")
+
+        # 流派 consensus · 与总盘同公式，保证可比
+        s_consensus = (g_bull + NEUTRAL_WEIGHT * g_neu) / max(n_active, 1) * 100
+        # 均分：取该流派 active 成员的 score 平均
+        s_avg = (sum(m.get("score", 0) for m in active_m) / n_active) if n_active > 0 else 0.0
+        # 主流信号
+        sig_counts = [("bullish", g_bull), ("neutral", g_neu), ("bearish", g_bear)]
+        dominant = max(sig_counts, key=lambda x: x[1])[0] if n_active > 0 else "skip"
+
+        meta = GROUP_META.get(g, {"label": g, "desc": ""})
+        school_scores[g] = {
+            "group": g,
+            "label": meta["label"],
+            "desc": meta["desc"],
+            "n_members": n_members,
+            "n_active": n_active,
+            "consensus": round(s_consensus, 1),
+            "avg_score": round(s_avg, 1),
+            "verdict": _consensus_to_verdict(s_consensus) if n_active > 0 else "不适合",
+            "bullish": g_bull,
+            "neutral": g_neu,
+            "bearish": g_bear,
+            "skip": g_skip,
+            "dominant_signal": dominant,
+        }
+
     return {
         "ticker": raw["ticker"],
         "panel_consensus": round(consensus, 1),
         "vote_distribution": vote_dist,
         "signal_distribution": sig_dist,
         "investors": investors_out,
+        # v2.15.4 · 按流派分数 · 7 个 school 各自 consensus/avg_score/verdict
+        "school_scores": school_scores,
         # v2.11 · 诊断字段，方便 agent / 自查看到公式
         "consensus_formula": {
             "version": "v2.11 · (bullish + 0.6*neutral) / active",
@@ -1407,6 +1472,8 @@ def generate_synthesis(raw: dict, dims_scored: dict, panel: dict, agent_analysis
         "verdict_label": verdict_label,
         "fundamental_score": round(fund_score, 1),
         "panel_consensus": round(consensus, 1),
+        # v2.15.4 · 按流派分数也带到 synthesis · 让报告层无须回拉 panel.json
+        "school_scores": panel.get("school_scores", {}),
         "dim_commentary": dim_commentary_final,  # agent-written > stub
         "institutional_modeling": {
             "dcf_intrinsic": dcf_summary.get("dcf_intrinsic"),

@@ -7,6 +7,26 @@
 
 ---
 
+## v2.15.4 (2026-04-22 · panel 只有总分看不到流派分歧)
+
+### FEATURE · 按流派打分 (school_scores)
+- **症状**：用户"打分系统我觉得可能还要优化一下，我们现在有几个流派，那么除了有一个最终分数，还要有不同流派各自给出的分数"· 51 位评委的分歧被聚合掉看不出来
+- **位置**：`run_real_test.py::generate_panel`（~line 740）+ `assemble_report.py::render_school_scores` + `assets/report-template.html`
+- **根因**：原设计只有一个 `panel_consensus` / `vote_distribution` / `signal_distribution` · 没有按 investor.group 分组聚合
+- **影响**：结构性矛盾票（譬如宏观友好但成长性差）看总分只是中性 · 用户无法快速判断到底是"共识中性"还是"各派互相抵消"
+- **修法**（3 改动）：
+  1. `generate_panel` 末尾加 `by_group` 聚合 · 每个流派用和总盘一致的 `(bullish + 0.6*neutral)/active * 100` 公式生成 consensus · active 成员 score 均值生成 avg_score · `_consensus_to_verdict` 阈值 80/65/50/35 与综合分对齐
+  2. `synthesis.json` 携带 `school_scores` · 报告层无须回拉 panel.json
+  3. `render_school_scores` 渲染 7 卡片网格（配色按 verdict 语义）· 注入 `<!-- INJECT_SCHOOL_SCORES -->` 锚点
+- **验证**：002217 · 宏观派 68 买入 vs 成长派 25 回避 · 分歧 43 分可见 · 总分 45.5 单看无法识别
+- **回归测试**：`tests/test_v2_15_4_school_scores.py`（7 tests · 聚合数学 / 阈值一致 / 模板锚点 / render 函数 / 空数据兜底）
+- **未来改该区域注意事项**：
+  - 如果修改 `NEUTRAL_WEIGHT` 或 consensus 公式 · 必须同步改 `generate_panel` 下面的流派聚合段 · 两处必须保持公式一致
+  - 如果新增/删除 investor · 需确认其 `group` 字段在 A-G 范围 · 否则 `school_scores` 会出现 `?` key
+  - 如果改 verdict 阈值（如 65→70）· 必须同步 `_consensus_to_verdict` 和 overall 的 `verdict_label` 两处
+
+---
+
 ## v2.15.3 (2026-04-21 · fetch_capital_flow 严重性能 bug)
 
 ### BUG · 每股重抓全 A 大宗/解禁/融资数据（3+ min/股）

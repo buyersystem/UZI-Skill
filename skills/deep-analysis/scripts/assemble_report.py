@@ -2100,6 +2100,98 @@ def render_panel_insights(syn: dict, panel: dict) -> str:
     )
 
 
+def render_school_scores(syn: dict, panel: dict) -> str:
+    """v2.15.4 · 按流派打分卡片.
+
+    7 个流派 (A-G) 各自给出 consensus / avg_score / verdict ·
+    一眼看出不同哲学在该票上的分歧（e.g. 价值派高分 but 技术派低分 → 白马但趋势坏）.
+    数据源优先 synthesis.school_scores · fallback panel.school_scores.
+    """
+    school = (syn or {}).get("school_scores") or (panel or {}).get("school_scores") or {}
+    if not school:
+        return ""
+
+    # verdict → 配色（和总评一致的语义）
+    VERDICT_COLOR = {
+        "重仓": ("#065f46", "rgba(16,185,129,0.15)"),  # 深绿
+        "买入": ("#047857", "rgba(16,185,129,0.10)"),  # 绿
+        "关注": ("#b45309", "rgba(245,158,11,0.10)"),  # 琥珀
+        "谨慎": ("#b91c1c", "rgba(239,68,68,0.10)"),   # 淡红
+        "回避": ("#991b1b", "rgba(239,68,68,0.18)"),   # 深红
+        "不适合": ("#6b7280", "rgba(107,114,128,0.10)"),  # 灰
+    }
+    SIG_ICON = {"bullish": "📈", "bearish": "📉", "neutral": "⚖️", "skip": "—"}
+
+    # 按 group 字母顺序排列（A-G）· 保留顺序稳定
+    order = ["A", "B", "C", "D", "E", "F", "G"]
+    items = []
+    for g in order:
+        s = school.get(g)
+        if not s:
+            continue
+        label = s.get("label", g)
+        cons = s.get("consensus", 0)
+        avg = s.get("avg_score", 0)
+        verdict = s.get("verdict", "—")
+        n_members = s.get("n_members", 0)
+        n_active = s.get("n_active", 0)
+        bull = s.get("bullish", 0)
+        neu = s.get("neutral", 0)
+        bear = s.get("bearish", 0)
+        skip = s.get("skip", 0)
+        desc = s.get("desc", "")
+        dom = s.get("dominant_signal", "skip")
+        fg, bg = VERDICT_COLOR.get(verdict, ("#374151", "rgba(107,114,128,0.10)"))
+        icon = SIG_ICON.get(dom, "")
+
+        # 柱状共识度（0-100）· 用 linear-gradient 直观表达
+        bar_fill = max(0, min(100, cons))
+        items.append(
+            f'<div style="background:{bg};border-radius:8px;padding:14px 16px;'
+            f'border:1px solid rgba(0,0,0,0.05)">'
+            f'  <div style="display:flex;justify-content:space-between;align-items:baseline">'
+            f'    <div style="font-weight:600;font-size:14px;color:{fg}">'
+            f'      {icon} {label} <span style="font-weight:400;font-size:11px;color:#9ca3af">· {n_members} 人</span>'
+            f'    </div>'
+            f'    <div style="font-size:11px;color:{fg};font-weight:600;letter-spacing:1px">{verdict}</div>'
+            f'  </div>'
+            f'  <div style="margin-top:6px;font-size:11px;color:#6b7280">{desc}</div>'
+            f'  <div style="display:flex;gap:12px;margin-top:10px;align-items:center">'
+            f'    <div style="flex:1">'
+            f'      <div style="height:6px;background:rgba(0,0,0,0.06);border-radius:3px;overflow:hidden">'
+            f'        <div style="height:100%;width:{bar_fill}%;background:linear-gradient(90deg,{fg} 0%,{fg} 100%);opacity:0.75"></div>'
+            f'      </div>'
+            f'      <div style="font-size:10px;color:#9ca3af;margin-top:3px">共识度 {cons:.0f}% · 均分 {avg:.1f}</div>'
+            f'    </div>'
+            f'    <div style="font-size:11px;color:#374151;white-space:nowrap">'
+            f'      <span style="color:#059669">📈{bull}</span> · '
+            f'      <span style="color:#6b7280">⚖️{neu}</span> · '
+            f'      <span style="color:#dc2626">📉{bear}</span>'
+            f'      {f"· <span style=\"color:#9ca3af\">—{skip}</span>" if skip else ""}'
+            f'    </div>'
+            f'  </div>'
+            f'</div>'
+        )
+
+    if not items:
+        return ""
+
+    return (
+        f'<div class="school-scores" style="margin:20px 0;padding:20px;'
+        f'background:rgba(139,92,246,0.06);border-left:4px solid #8b5cf6;'
+        f'border-radius:6px">'
+        f'  <div style="font-size:11px;color:#7c3aed;letter-spacing:2px;'
+        f'margin-bottom:4px">🎭 SCHOOL SCORES · 七大流派各自评分</div>'
+        f'  <div style="font-size:12px;color:#6b7280;margin-bottom:14px">'
+        f'不同哲学给出不同分数 · 分歧越大通常意味着结论越不稳 · 一致看好才是真共识'
+        f'  </div>'
+        f'  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">'
+        + "".join(items) +
+        f'  </div>'
+        f'</div>'
+    )
+
+
 def render_debate_rounds(debate: dict) -> str:
     """3 rounds bull vs bear transcript."""
     rounds = debate.get("rounds") or []
@@ -2766,6 +2858,26 @@ def assemble(ticker: str) -> Path:
         "<!-- INJECT_PANEL_INSIGHTS -->",
         render_panel_insights(syn, panel),
     )
+    # v2.15.4 · 按流派打分卡片（7 个流派 A-G 各自 consensus/avg/verdict）
+    # 注入在 panel_insights 后 · 若模板尚未含 marker 则追加到 panel_insights 末
+    school_html = render_school_scores(syn, panel)
+    if school_html:
+        if "<!-- INJECT_SCHOOL_SCORES -->" in template:
+            template = template.replace("<!-- INJECT_SCHOOL_SCORES -->", school_html)
+        else:
+            # 兼容旧模板：拼到 panel-insights 后
+            template = template.replace(
+                '</div>\n        <!-- Top 3 Bears',
+                f'</div>\n        {school_html}\n        <!-- Top 3 Bears',
+                1,
+            )
+            # 若旧 anchor 也没命中 · 最后兜底拼到 INJECT_DEBATE_ROUNDS 前
+            if school_html not in template:
+                template = template.replace(
+                    "<!-- INJECT_DEBATE_ROUNDS -->",
+                    school_html + "\n<!-- INJECT_DEBATE_ROUNDS -->",
+                    1,
+                )
     template = template.replace(
         "<!-- INJECT_RISKS -->",
         render_risks(syn.get("risks") or []),
