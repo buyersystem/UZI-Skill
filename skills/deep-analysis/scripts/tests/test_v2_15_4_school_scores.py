@@ -108,7 +108,7 @@ def test_mixed_formula_polarizes_extremes():
 
 def test_consensus_formula_in_panel_has_mixed_components():
     """panel.consensus_formula 必须含 score_mean / vote_weighted / polarize_k."""
-    src = (SCRIPTS / "run_real_test.py").read_text(encoding="utf-8")
+    src = (((SCRIPTS / "run_real_test.py").read_text(encoding="utf-8")) + "\n" + (SCRIPTS / "lib" / "pipeline" / "score_fns.py").read_text(encoding="utf-8"))
     # 公式定义的 SCORE_WEIGHT / VOTE_WEIGHT / POLARIZE_K 必须存在
     assert "SCORE_WEIGHT = 0.65" in src
     assert "VOTE_WEIGHT" in src and "0.35" in src
@@ -148,7 +148,7 @@ def test_school_scores_in_cached_panel():
 
 def test_verdict_thresholds_match_overall():
     """流派级 verdict 阈值必须和综合分阈值对齐（80/65/50/35）."""
-    src = (SCRIPTS / "run_real_test.py").read_text(encoding="utf-8")
+    src = (((SCRIPTS / "run_real_test.py").read_text(encoding="utf-8")) + "\n" + (SCRIPTS / "lib" / "pipeline" / "score_fns.py").read_text(encoding="utf-8"))
     # 函数 _consensus_to_verdict 应该在 build_panel 里
     assert "_consensus_to_verdict" in src
     # 阈值应和 overall 保持一致 · 80/65/50/35
