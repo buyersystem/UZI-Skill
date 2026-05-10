@@ -12,7 +12,7 @@
 [![Methods](https://img.shields.io/badge/Institutional%20Methods-17-red)]()
 [![Self-Review](https://img.shields.io/badge/Self--Review-13%20checks-blueviolet)](skills/deep-analysis/scripts/lib/self_review.py)
 
-**A-share / HK / US deep-analysis engine — with first-class Chinese-market coverage Western terminals don't touch. v3.3.4: mini_racer V8 SIGTRAP escape hatch (issue #61, sentinel auto-recovery) · v3.3.3: 4 community PRs · v3.3.2: issues #50/#51 hotfix · v3.2.0: assemble_report split (-80%) · v3.0.0: pipeline default. 355 pytest pass.**
+**A-share / HK / US deep-analysis engine — with first-class Chinese-market coverage Western terminals don't touch. v3.4.0: ETF/LOF holdings batch analysis (top 10 stocks · 2nd-confirm prompt · partial-failure tolerant) + baostock ≥0.9.1 lock · v3.3.4: mini_racer V8 escape hatch · v3.3.3: 4 community PRs · v3.2.0: assemble_report split (-80%). 362 pytest pass.**
 
 [Install](#install) · [Usage](#usage) · [Why Western Investors Should Care](#-why-western-investors-should-care) · [Jury Panel](#-51-investor-jury) · [Methods](#-17-institutional-methods) · [Self-Review Gate 🆕](#-mechanical-self-review-gate-new-in-v29) · [Screenshots](#-what-the-report-looks-like) · [FAQ](#-faq)
 

@@ -1,5 +1,87 @@
 # Release Notes
 
+## v3.4.0 — 2026-05-10 (基金/ETF 持仓循环分析 + baostock ≥0.9.1)
+
+> **用户反馈**："更新对基金和 ETF 的支持 · @所有人 请各位小伙伴升级 baostock API 至 v0.9.1"
+> **设计简化（关键）**："基金和 etf 很简单 · 你就搜索这个基金的持仓分析就行了 · 但是在使用前要提醒用户因为要搜索十个股票 · 可能时间和消耗会变大 · 需要他二次确认"
+
+### 1. 基金/ETF 持仓循环分析（新功能）
+
+之前 ETF/LOF 直接 early-exit · 用户得手动复制 top 持仓股的代码再跑 10 次. v3.4.0 起：
+
+```bash
+python run.py 510300.SH
+# → 显示 ETF 510300（沪深300）前 10 大持仓股 + 估算耗时
+# → 询问 y/N/数字
+# → 确认后循环跑 10 次 stock-analyze（resume cache 加速）
+# → 生成 fund-holdings-summary.html · 索引页链接 10 份子报告
+```
+
+**用户体验**：
+```
+📊 ETF 510300.SH · 持仓批量分析
+
+该基金前 10 大持仓：
+   1. 贵州茅台   (600519.SH)  占比 5.89%
+   2. 宁德时代   (300750.SZ)  占比 2.78%
+   3. 中国平安   (601318.SH)  占比 2.43%
+   ... (省略)
+
+⚠️  循环分析 10 只成分股 · 预计 约 40 分钟（按 depth=medium）
+
+继续？
+  y    = 跑全部 10 只
+  数字 = 只跑前 K 只（如输入 5 跑前 5）
+  N    = 取消（默认）
+```
+
+**安全设计**：
+- **二次确认**：默认取消 · 用户得显式输入 y / 数字
+- **数字限制**：可输入"5"只跑前 5 只 · 节约时间
+- **partial failure 容忍**：某只崩了不中断 · 其他继续 + summary 标失败
+- **CI / agent 模式**：`UZI_FUND_AUTO_YES=1` 跳过 prompt
+- **可转债 / 指数仍 early-exit**：只对 ETF/LOF 启用持仓分析
+
+**实现**：
+- `lib/fund_holdings_runner.py` (新 · 240 行) · 提示 + 循环 + 聚合
+- `run.py` · 检测 ETF/LOF 后调 runner（不再 early-exit）
+- 复用现有 stock pipeline · `resume=True` 让多次跑同一持仓能利用 cache
+
+### 2. baostock ≥0.9.1 锁版本（社群通知）
+
+社群通知：`2026-04-22 13:00 起 · 低于 v0.9.1 的版本将无法正常访问 baostock 数据服务`.
+
+**改动**：
+- `requirements.txt`: `baostock>=0.8.9` → **`baostock>=0.9.1`**
+- 验证：本地 baostock 0.9.1 实测 login + query 茅台 K 线全过 (10 行真实数据)
+
+**用户升级**：
+```bash
+pip install --upgrade baostock -i https://pypi.org/simple
+pip show baostock | grep Version  # 应显示 0.9.1+
+```
+
+### 测试
+
+- 新增 `tests/test_v3_4_0_fund_holdings.py` (7 tests):
+  - runtime 估算
+  - 空持仓返 `no_holdings`
+  - 非交互 + 无 auto_yes → 取消（agent 必须显式确认）
+  - auto_yes 跑全部
+  - partial failure 容忍
+  - summary HTML 含子报告 link
+  - preflight ETF 路径正确
+- **总套件 362 tests 全过**（355 + 7 新）
+- 真机：`prepare_target('510300')` 拉真实持仓 · 茅台 5.89% top1
+- 真机 fund runner mocked end-to-end · summary HTML 生成正常
+
+### 致谢
+
+- 用户提出"基金/ETF 支持"需求 + 简化设计建议（不要 21 维特化 · 直接循环持仓）
+- 社群通知 baostock 升级要求
+
+---
+
 ## v3.3.4 — 2026-05-10 (mini_racer V8 crash escape hatch · issue #61)
 
 > **用户反馈** (@dragonforai)：`python run.py SEHK.03690 --depth deep` →

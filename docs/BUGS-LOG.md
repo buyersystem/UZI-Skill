@@ -7,6 +7,34 @@
 
 ---
 
+## v3.4.0 (2026-05-10 · 基金/ETF 持仓循环分析 + baostock ≥0.9.1)
+
+### FEATURE · ETF/LOF 持仓循环分析（v2.10.4 early-exit 改为 opt-in 批量）
+- **背景**：v2.9.2 引入 ETF/LOF 早退（避免对非个股标的跑 51 评委）· 但用户期望"分析整只 ETF" · 之前手动跑 10 次 stock-analyze 太麻烦
+- **位置**：`lib/fund_holdings_runner.py`（新）+ `run.py`（两处分支接入 runner）
+- **用户体验**：检测到 ETF/LOF → 列持仓 + 估算耗时 → 二次确认（y / 数字 / N） → 循环跑 stock-analyze + 生成 summary HTML
+- **安全设计**：
+  - 默认取消（除非用户输入 y）
+  - 数字输入只跑前 K 只
+  - 单只崩不中断（partial failure 容忍）
+  - 非交互环境必须 `UZI_FUND_AUTO_YES=1` 显式确认
+  - 可转债 / 指数仍 early-exit · 只对 ETF/LOF 启用
+- **回归测试**：`tests/test_v3_4_0_fund_holdings.py` (7 tests · runtime 估算 / 取消 / auto_yes / partial failure / summary HTML 链接)
+- **未来改该区域注意事项**：
+  - **不要把 ETF/LOF pipeline 强行塞进主 22 维 stock pipeline** · 它们没有 ROE/护城河字段 · 这次设计意在循环复用 stock pipeline 而不是新建 fund pipeline
+  - 默认取消逻辑必须保留 · 否则 agent 误传 ETF 会循环 10 次浪费 token
+  - `UZI_FUND_AUTO_YES=1` 应用于 CI / agent 编排场景 · 不要默认开启
+  - top_holdings 必须有 rank/code/name 三个字段 · weight_pct 可选
+
+### CONFIG · baostock 锁版本 ≥0.9.1
+- **背景**：社群通知 2026-04-22 起 baostock 服务端要求 ≥0.9.1
+- **位置**：`requirements.txt`
+- **修法**：`baostock>=0.8.9` → `baostock>=0.9.1`
+- **验证**：本地 0.9.1 实测 login + 茅台 K 线 query 全过
+- **未来改该区域注意事项**：baostock 服务端版本要求未来可能继续上调 · 看到 login() 大面积失败时优先升 baostock
+
+---
+
 ## v3.3.4 (2026-05-10 · mini_racer V8 crash escape hatch · issue #61)
 
 ### BUG #61 · macOS Py 3.12/3.13 下 mini_racer V8 SIGTRAP（@dragonforai）
